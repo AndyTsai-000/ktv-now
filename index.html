@@ -39,6 +39,9 @@ header .sp{flex:1}
 #tapPlay button{font-size:22px;padding:16px 30px}
 #nextUp{position:absolute;top:14px;right:14px;max-width:60%;padding:8px 14px;border-radius:10px;background:rgba(18,11,36,.8);font-size:15px;display:none;pointer-events:none}
 #stage:fullscreen #nextUp.has{display:block}
+#exitFs{position:absolute;top:14px;left:14px;display:none;padding:10px 16px;font-size:16px;background:rgba(18,11,36,.85);border:1px solid rgba(255,255,255,.35);opacity:.8}
+#exitFs:hover{opacity:1}
+#stage:fullscreen #exitFs{display:block}
 #toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);padding:10px 18px;border-radius:12px;background:rgba(255,79,163,.92);color:#fff;font-size:17px;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;text-align:center}
 #toast.show{opacity:1}
 #bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -93,6 +96,11 @@ header .sp{flex:1}
 @media (max-width:520px){
   header{padding:10px 12px;gap:8px}
   .hideS{display:none}
+  header button{padding:6px 10px;font-size:13px;white-space:nowrap}
+  .logo{font-size:17px}
+  #idle{gap:6px}
+  #idle .small{display:none}
+  #idleQr img,#idleQr canvas{width:110px!important}
   .it img{width:56px;height:32px}
 }
 </style>
@@ -228,16 +236,23 @@ function startTV(){
 
   $('#app').innerHTML='<header><span class="logo">🎤 隨時唱 KTV</span><span class="sp"></span>'+
     '<span class="small hideS"><span class="dot" id="net"></span>手機點歌房號 <b class="code" style="font-size:16px">'+room+'</b></span>'+
-    '<button id="asPhone">📱 我是手機</button></header>'+
+    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 我是手機</button></header>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
-      '<div id="tapPlay"><button class="main" id="tapBtn">▶ 按這裡開始播放</button></div><div id="nextUp"></div><div id="toast"></div></div>'+
+      '<div id="tapPlay"><button class="main" id="tapBtn">▶ 按這裡開始播放</button></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
       '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button></div></div></div>'+
     '<div id="side">'+searchHTML()+
       '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
   if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
   if(!canNet) $('#qrBox').innerHTML='<div class="small">這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。</div>';
 
+  // 換房號：通知舊房號的手機，再用新房號重新開始（點歌單保留）
+  $('#newRoom').onclick=()=>{
+    if(!confirm('要換一個新的房號嗎？\n換了以後，舊房號的手機就不能再點歌，要重新掃描 QR Code。')) return;
+    if(mq) mq.pub(TOPIC+room+'/s',{moved:true});
+    let n; do{ n=String(100000+Math.floor(Math.random()*900000)); }while(n===room);
+    save('ktv.room',n); setTimeout(()=>location.reload(),300);
+  };
   $('#asPhone').onclick=()=>{ const c=(prompt('請輸入電視畫面上的 6 位數房號')||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
 
   // 播放器
@@ -302,7 +317,8 @@ function startTV(){
   $('#bPause').onclick=()=>handle({t:'pause'});
   $('#bReplay').onclick=()=>handle({t:'replay'});
   $('#bSkip').onclick=()=>handle({t:'skip'});
-  $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen) st.requestFullscreen(); else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
+  $('#exitFs').onclick=()=>{ if(document.fullscreenElement) document.exitFullscreen(); };
+  $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen) st.requestFullscreen().catch(()=>{}); else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
   changed();
   if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   window.__ktv={S,handle,room,player:()=>player};
@@ -310,7 +326,7 @@ function startTV(){
 
 // ---------- 手機點歌模式 ----------
 function startRemote(){
-  const room=JOIN; let S={now:null,q:[],paused:false},got=false;
+  const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
     '<input class="name" id="nm" placeholder="你的名字" maxlength="10"></header>'+
     '<div id="remote"><div class="now"><div class="small">正在唱</div><div class="t" id="nowT">連線中…</div>'+
@@ -318,7 +334,7 @@ function startRemote(){
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
   const nm=$('#nm'); nm.value=load('ktv.name','');
   nm.onchange=()=>save('ktv.name',clean(nm.value));
-  const pub=c=>{ if(!mq||!mq.up){ toast('還沒連上電視，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
+  const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上電視，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
   UI.state=()=>S; UI.hist=()=>S.hist||[];
   UI.act=c=>{ c.by=clean(nm.value); if(pub(c)&&c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title); };
   bindSearch();
@@ -326,12 +342,13 @@ function startRemote(){
   $('#bReplay').onclick=()=>pub({t:'replay'});
   $('#bSkip').onclick=()=>pub({t:'skip'});
   function draw(){
-    $('#nowT').textContent=S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到電視，請確認電視畫面已打開、房號正確');
+    $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描電視上的 QR Code':S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到電視，請確認電視畫面已打開、房號正確');
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
-    o=>{ if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[]}; draw(); },
+    o=>{ if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
+      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[]}; draw(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   draw(); $('#nowT').textContent='連線中…';
   window.__ktv={S:()=>S,mq};
