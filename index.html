@@ -35,8 +35,6 @@ header .sp{flex:1}
 #idle h2{margin:0;font-size:clamp(22px,4vw,44px)}
 #idleQr{background:#fff;padding:10px;border-radius:12px}
 #idleQr img,#idleQr canvas{display:block;width:clamp(120px,18vw,200px)!important;height:auto!important}
-#tapPlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
-#tapPlay button{font-size:22px;padding:16px 30px}
 #nextUp{position:absolute;top:14px;right:14px;max-width:60%;padding:8px 14px;border-radius:10px;background:rgba(18,11,36,.8);font-size:15px;display:none;pointer-events:none}
 #stage:fullscreen #nextUp.has{display:block}
 #exitFs{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:none;padding:3px 12px;border-radius:999px;font-size:12px;white-space:nowrap;background:rgba(18,11,36,.85);border:1px solid rgba(255,255,255,.35);opacity:.8}
@@ -239,7 +237,7 @@ function startTV(){
     '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 我是手機</button></header>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
-      '<div id="tapPlay"><button class="main" id="tapBtn">▶ 按這裡開始播放</button></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
+      '<button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
       '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button></div></div></div>'+
     '<div id="side">'+searchHTML()+
       '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
@@ -263,20 +261,22 @@ function startTV(){
   };
   const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
 
+  // 還沒開始播時（廣告播放中也是這個狀態）不跳出任何按鈕，只悄悄再叫它播一次；
+  // 網頁剛打開、瀏覽器不准自動出聲時，點畫面任何地方就會開始播
+  const stuck=()=>{ const st=player&&player.getPlayerState&&player.getPlayerState(); return !!S.now&&(st===-1||st===5); };
   function play(it){
-    $('#tapPlay').style.display='none';
     if(!ready) return;
     player.loadVideoById(it.id);
     clearTimeout(blockT);
-    blockT=setTimeout(()=>{ const st=player.getPlayerState&&player.getPlayerState(); if(S.now&&(st===-1||st===5)) $('#tapPlay').style.display='flex'; },3000);
+    blockT=setTimeout(()=>{ if(stuck()) player.playVideo(); },3000);
   }
+  for(const ev of ['pointerdown','keydown']) document.addEventListener(ev,()=>{ if(stuck()) player.playVideo(); });
   function onState(e){
     if(e.data===YT.PlayerState.ENDED) next();
-    else if(e.data===YT.PlayerState.PLAYING){ $('#tapPlay').style.display='none'; if(S.paused){ S.paused=false; changed(); } }
+    else if(e.data===YT.PlayerState.PLAYING){ clearTimeout(blockT); if(S.paused){ S.paused=false; changed(); } }
     else if(e.data===YT.PlayerState.PAUSED){ if(!S.paused){ S.paused=true; changed(); } }
   }
   function onErr(){ toast('這首不能在這裡播放，自動換下一首'); setTimeout(next,2000); }
-  $('#tapBtn').onclick=()=>{ if(player) player.playVideo(); $('#tapPlay').style.display='none'; };
 
   function next(){
     S.now=S.q.shift()||null; S.paused=false;
