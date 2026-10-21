@@ -1,0 +1,6 @@
+name = "ktv-search"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+APP_ORIGINS = "https://andytsai-000.github.io,http://localhost:8795"

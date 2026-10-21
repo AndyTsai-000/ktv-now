@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>隨時唱 KTV</title>
+<meta name="theme-color" content="#120b24">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%A4%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#120b24;--panel:#1d1436;--panel2:#271b47;--line:#3a2b63;--text:#f3eefe;--dim:#a99cc9;--pink:#ff4fa3;--cyan:#33e1ff;--gold:#ffd166}
+*{box-sizing:border-box}
+html,body,#app{margin:0;height:100%}
+#app{display:flex;flex-direction:column}
+header{flex:none}
+body{background:var(--bg);color:var(--text);font:15px/1.5 "Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;border-radius:10px;background:var(--panel2);padding:8px 14px}
+button:hover{filter:brightness(1.2)}
+button:disabled{opacity:.4;cursor:default;filter:none}
+.main{background:linear-gradient(135deg,var(--pink),#a855f7);color:#fff;font-weight:700}
+.logo{font-weight:800;font-size:20px;letter-spacing:1px;background:linear-gradient(90deg,var(--pink),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+header .sp{flex:1}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#777;margin-right:6px;vertical-align:middle}
+.dot.on{background:#4ade80;box-shadow:0 0 6px #4ade80}
+.small{font-size:13px;color:var(--dim)}
+
+/* 電視畫面 */
+#tv{display:grid;grid-template-columns:1fr 380px;flex:1;min-height:0}
+#left{display:flex;flex-direction:column;min-width:0;padding:16px;gap:12px}
+#stage{position:relative;flex:1;min-height:0;background:#000;border-radius:14px;overflow:hidden}
+#stage:fullscreen{border-radius:0}
+#player,#stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+#idle{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px;background:radial-gradient(circle at 50% 40%,#3b1d6e,#120b24 70%)}
+#idle h2{margin:0;font-size:clamp(22px,4vw,44px)}
+#idleQr{background:#fff;padding:10px;border-radius:12px}
+#idleQr img,#idleQr canvas{display:block;width:clamp(120px,18vw,200px)!important;height:auto!important}
+#tapPlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+#tapPlay button{font-size:22px;padding:16px 30px}
+#nextUp{position:absolute;top:14px;right:14px;max-width:60%;padding:8px 14px;border-radius:10px;background:rgba(18,11,36,.8);font-size:15px;display:none;pointer-events:none}
+#stage:fullscreen #nextUp.has{display:block}
+#toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);padding:10px 18px;border-radius:12px;background:rgba(255,79,163,.92);color:#fff;font-size:17px;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;text-align:center}
+#toast.show{opacity:1}
+#bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#nowT{flex:1;min-width:160px;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#nowT .small{font-weight:400}
+.ctl button{font-size:16px;padding:10px 16px}
+
+#side{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line);background:var(--panel)}
+.search{display:flex;gap:8px;padding:14px 14px 6px}
+.search input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+.search input:focus{border-color:var(--pink)}
+.opt{padding:0 14px 8px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim)}
+.tabs{display:flex;gap:4px;padding:0 14px}
+.tabs button{flex:1;background:transparent;border-radius:10px 10px 0 0;padding:8px 4px;color:var(--dim)}
+.tabs button.on{background:var(--panel2);color:var(--text);font-weight:700}
+.list{flex:1;overflow:auto;background:var(--panel2);margin:0 14px 14px;border-radius:0 0 10px 10px;padding:6px}
+.it{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px}
+.it:hover{background:rgba(255,255,255,.05)}
+.it img{width:72px;height:40px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+.it .tx{flex:1;min-width:0}
+.it .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it button{padding:6px 10px;font-size:13px;flex:none}
+.it .n{width:22px;text-align:center;color:var(--gold);font-weight:700;flex:none}
+.empty{padding:20px 10px;text-align:center;color:var(--dim)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}
+.chips button{padding:6px 12px;font-size:13px;background:var(--panel);border:1px solid var(--line)}
+#qrBox{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
+#qrBox .q{background:#fff;padding:6px;border-radius:8px;flex:none}
+#qrBox .q img,#qrBox .q canvas{display:block;width:84px!important;height:auto!important}
+.code{font-size:22px;font-weight:800;letter-spacing:3px;color:var(--gold)}
+
+/* 手機點歌 */
+#remote{width:100%;max-width:640px;margin:0 auto;display:flex;flex-direction:column;flex:1;min-height:0}
+#remote .now{margin:12px 16px 0;padding:12px;border-radius:12px;background:var(--panel)}
+#remote .now .t{font-weight:700;font-size:16px}
+#remote .ctl{display:flex;gap:8px;margin-top:10px}
+#remote .ctl button{flex:1;padding:10px 4px}
+#remote .search{padding:12px 16px 6px}
+#remote .opt{padding:0 16px 8px}
+#remote .tabs{padding:0 16px}
+#remote .list{margin:0 16px 16px}
+.name{width:90px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
+
+@media (max-width:900px){
+  #app{height:auto;min-height:100%}
+  #tv{display:block}
+  #left{padding:12px}
+  #stage{flex:none;aspect-ratio:16/9}
+  #side{border-left:0;border-top:1px solid var(--line);height:70vh}
+}
+@media (max-width:520px){
+  header{padding:10px 12px;gap:8px}
+  .hideS{display:none}
+  .it img{width:56px;height:32px}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+'use strict';
+const API='https://ktv-search.multi-share-api.workers.dev';
+const MQ_URL='wss://broker.emqx.io:8084/mqtt',TOPIC='ktv-now-tw/';
+const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'').slice(0,6);
+const IS_REMOTE=JOIN.length===6;
+const HOT=['周杰倫','五月天','告五人','蔡依林','田馥甄','伍佰','張學友','鄧紫棋','台語經典','民歌','生日快樂歌','對唱情歌'];
+
+const $=s=>document.querySelector(s);
+const load=(k,d)=>{ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } };
+const save=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const thumb=id=>'https://i.ytimg.com/vi/'+id+'/mqdefault.jpg';
+const keyOf=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const ytId=s=>{ const m=String(s).match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/); return m?m[1]:null; };
+const clean=v=>String(v==null?'':v).replace(/[<>&"'\\]/g,'').trim().slice(0,10);
+const song=o=>({id:String(o.id||'').slice(0,11),title:String(o.title||'YouTube 影片').slice(0,120),ch:String(o.ch||'').slice(0,60),len:String(o.len||'').slice(0,10)});
+
+// 最小的 MQTT 3.1.1 用戶端（跟跨界遊戲區同一套）：只做連線、訂閱、發佈和心跳，斷線自動重連
+function Mq(url,onReady,onMsg,onState){
+  const te=new TextEncoder(),td=new TextDecoder(); let ws,buf,ping=0,pid=1,dead=false;
+  const str=t=>{ const b=te.encode(t),o=new Uint8Array(b.length+2); o[0]=b.length>>8; o[1]=b.length&255; o.set(b,2); return o; };
+  const join=parts=>{ let n=0; for(const a of parts) n+=a.length; const o=new Uint8Array(n); let k=0; for(const a of parts){ o.set(a,k); k+=a.length; } return o; };
+  const pkt=(h,body)=>{ const len=[]; let n=body.length; do{ let d=n%128; n=Math.floor(n/128); if(n>0) d|=128; len.push(d); }while(n>0); return join([[h],len,body]); };
+  const api={up:false};
+  function open(){
+    buf=new Uint8Array(0);
+    try{ ws=new WebSocket(url,'mqtt'); }catch(e){ setTimeout(open,3000); return; }
+    ws.binaryType='arraybuffer';
+    ws.onopen=()=>ws.send(pkt(0x10,join([str('MQTT'),[4,2,0,60],str('ktv'+Math.random().toString(36).slice(2,12))])));
+    ws.onmessage=e=>{ buf=join([buf,new Uint8Array(e.data)]);
+      for(;;){ if(buf.length<2) return; let mul=1,len=0,i=1,d; do{ if(i>=buf.length) return; d=buf[i++]; len+=(d&127)*mul; mul*=128; }while(d&128);
+        if(buf.length<i+len) return; const type=buf[0]>>4,body=buf.slice(i,i+len); buf=buf.slice(i+len);
+        if(type===2){ api.up=true; clearInterval(ping); ping=setInterval(()=>{ if(ws.readyState===1) ws.send(new Uint8Array([0xC0,0])); },30000); onState(true); onReady(); }
+        else if(type===3){ const tl=(body[0]<<8)|body[1]; let o=null; try{ o=JSON.parse(td.decode(body.subarray(2+tl))); }catch(_){} if(o) onMsg(o); } } };
+    ws.onclose=()=>{ api.up=false; clearInterval(ping); onState(false); if(!dead) setTimeout(open,2500); };
+    ws.onerror=()=>{ try{ws.close();}catch(e){} };
+  }
+  api.sub=t=>{ if(ws&&ws.readyState===1) ws.send(pkt(0x82,join([[0,(pid++%250)+1],str(t),[0]]))); };
+  api.pub=(t,o)=>{ if(ws&&ws.readyState===1) ws.send(pkt(0x30,join([str(t),te.encode(JSON.stringify(o))]))); };
+  api.close=()=>{ dead=true; clearInterval(ping); try{ws.close();}catch(e){} };
+  open();
+  return api;
+}
+
+// ---------- 共用：搜尋與清單 ----------
+let results=null,tab='search',searching=false;
+const UI={};   // 各模式提供 act(cmd)、state()
+
+function searchHTML(){
+  return '<div class="search"><input id="q" placeholder="輸入歌名或歌手，或貼上 YouTube 網址" enterkeyhint="search" autocomplete="off"><button class="main" id="go">搜尋</button></div>'+
+    '<label class="opt"><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label>'+
+    '<div class="tabs"><button data-tab="search">搜尋結果</button><button data-tab="queue">已點歌曲</button><button data-tab="hist">唱過的</button></div>'+
+    '<div class="list" id="list"></div>';
+}
+function bindSearch(){
+  const go=()=>doSearch($('#q').value);
+  $('#go').onclick=go;
+  $('#q').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); $('#q').blur(); } };
+  $('#kOnly').onchange=e=>save('ktv.kOnly',e.target.checked);
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; renderList(); });
+  $('#list').onclick=e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.hot){ $('#q').value=b.dataset.hot; doSearch(b.dataset.hot); return; }
+    const a=b.dataset.a,i=+b.dataset.i;
+    if(a==='add'||a==='ins'){
+      const src=tab==='hist'?hist():results; const s=src&&src[i]; if(!s) return;
+      UI.act({t:'add',s:song(s),top:a==='ins'});
+      b.textContent='✓ 已點'; b.disabled=true;
+    } else if(a==='del'||a==='top') UI.act({t:a,k:b.dataset.k});
+  };
+}
+async function doSearch(text){
+  text=String(text||'').trim(); if(!text) return;
+  tab='search';
+  const id=ytId(text);
+  if(id){ // 貼上網址：直接查這支影片
+    results=[{id,title:'讀取中…'}]; renderList();
+    try{ const r=await fetch(API+'/info?id='+id); const j=await r.json(); results=[song({id,title:j.title||'YouTube 影片',ch:j.ch})]; }
+    catch(e){ results=[song({id})]; }
+    renderList(); return;
+  }
+  const kOnly=$('#kOnly').checked,q=kOnly&&!/ktv|伴唱|伴奏|karaoke|卡拉/i.test(text)?text+' KTV':text;
+  searching=true; results=null; renderList();
+  try{
+    const r=await fetch(API+'/search?q='+encodeURIComponent(q)); const j=await r.json();
+    results=Array.isArray(j)?j:[];
+    if(!Array.isArray(j)) toast('搜尋失敗，請再試一次');
+  }catch(e){ results=[]; toast('連不上搜尋服務，請確認網路'); }
+  searching=false; renderList();
+}
+const hist=()=>UI.hist?UI.hist():load('ktv.hist',[]);
+function rowHTML(s,i,btns,num){
+  return '<div class="it">'+(num?'<span class="n">'+num+'</span>':'')+'<img loading="lazy" src="'+thumb(esc(s.id))+'" alt="">'+
+    '<div class="tx"><div class="t" title="'+esc(s.title)+'">'+esc(s.title)+'</div><div class="s">'+esc([s.ch,s.len,s.by?'由 '+s.by+' 點':''].filter(Boolean).join('・'))+'</div></div>'+btns+'</div>';
+}
+function renderList(){
+  const st=UI.state(),el=$('#list'); if(!el) return;
+  document.querySelectorAll('.tabs button').forEach(b=>{ b.classList.toggle('on',b.dataset.tab===tab); if(b.dataset.tab==='queue') b.textContent='已點歌曲'+(st.q.length?' ('+st.q.length+')':''); });
+  let h='';
+  if(tab==='search'){
+    if(searching) h='<div class="empty">搜尋中…</div>';
+    else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(t=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
+    else if(!results.length) h='<div class="empty">找不到，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
+    else h=results.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('');
+  } else if(tab==='queue'){
+    h=(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
+      (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
+  } else {
+    const H=hist();
+    h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
+  }
+  el.innerHTML=h;
+}
+let toastT=0;
+function toast(t){ const el=$('#toast'); if(!el) return; el.textContent=t; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),3000); }
+
+// ---------- 電視（主機）模式 ----------
+function startTV(){
+  let room=String(load('ktv.room',''));
+  if(!/^\d{6}$/.test(room)){ room=String(100000+Math.floor(Math.random()*900000)); save('ktv.room',room); }
+  const S=load('ktv.state',{now:null,q:[]}); S.paused=false;
+  if(!Array.isArray(S.q)) S.q=[];
+  const link=location.origin+location.pathname+'?r='+room;
+  const canNet=/github\.io$|^localhost$|^127\./.test(location.hostname);
+
+  $('#app').innerHTML='<header><span class="logo">🎤 隨時唱 KTV</span><span class="sp"></span>'+
+    '<span class="small hideS"><span class="dot" id="net"></span>手機點歌房號 <b class="code" style="font-size:16px">'+room+'</b></span>'+
+    '<button id="asPhone">📱 我是手機</button></header>'+
+    '<div id="tv"><div id="left"><div id="stage"><div id="player"></div>'+
+      '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
+      '<div id="tapPlay"><button class="main" id="tapBtn">▶ 按這裡開始播放</button></div><div id="nextUp"></div><div id="toast"></div></div>'+
+      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button></div></div></div>'+
+    '<div id="side">'+searchHTML()+
+      '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
+  if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
+  if(!canNet) $('#qrBox').innerHTML='<div class="small">這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。</div>';
+
+  $('#asPhone').onclick=()=>{ const c=(prompt('請輸入電視畫面上的 6 位數房號')||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
+
+  // 播放器
+  let player=null,ready=false,blockT=0;
+  window.onYouTubeIframeAPIReady=()=>{
+    player=new YT.Player('player',{width:'100%',height:'100%',playerVars:{autoplay:1,rel:0,playsinline:1,modestbranding:1,fs:0},
+      events:{onReady:()=>{ ready=true; if(S.now) play(S.now); },onStateChange:onState,onError:onErr}});
+  };
+  const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
+
+  function play(it){
+    $('#tapPlay').style.display='none';
+    if(!ready) return;
+    player.loadVideoById(it.id);
+    clearTimeout(blockT);
+    blockT=setTimeout(()=>{ const st=player.getPlayerState&&player.getPlayerState(); if(S.now&&(st===-1||st===5)) $('#tapPlay').style.display='flex'; },3000);
+  }
+  function onState(e){
+    if(e.data===YT.PlayerState.ENDED) next();
+    else if(e.data===YT.PlayerState.PLAYING){ $('#tapPlay').style.display='none'; if(S.paused){ S.paused=false; changed(); } }
+    else if(e.data===YT.PlayerState.PAUSED){ if(!S.paused){ S.paused=true; changed(); } }
+  }
+  function onErr(){ toast('這首不能在這裡播放，自動換下一首'); setTimeout(next,2000); }
+  $('#tapBtn').onclick=()=>{ if(player) player.playVideo(); $('#tapPlay').style.display='none'; };
+
+  function next(){
+    S.now=S.q.shift()||null; S.paused=false;
+    if(S.now){
+      const H=hist().filter(h=>h.id!==S.now.id); H.unshift(song(S.now)); save('ktv.hist',H.slice(0,60));
+      play(S.now);
+    } else if(ready) player.stopVideo();
+    changed();
+  }
+  function handle(c){
+    if(!c||!c.t) return;
+    if(c.t==='add'&&c.s&&/^[A-Za-z0-9_-]{11}$/.test(c.s.id)){
+      const it=Object.assign(song(c.s),{k:keyOf(),by:clean(c.by)});
+      if(c.top) S.q.unshift(it); else S.q.push(it);
+      if(!S.now) return next();
+      toast((it.by?it.by+' ':'')+(c.top?'插播':'點了')+'：'+it.title);
+    } else if(c.t==='del') S.q=S.q.filter(x=>x.k!==c.k);
+    else if(c.t==='top'){ const i=S.q.findIndex(x=>x.k===c.k); if(i>0) S.q.unshift(S.q.splice(i,1)[0]); }
+    else if(c.t==='skip') return next();
+    else if(c.t==='pause'){ if(!ready||!S.now) return; if(S.paused) player.playVideo(); else player.pauseVideo(); S.paused=!S.paused; }
+    else if(c.t==='replay'){ if(ready&&S.now){ player.seekTo(0,true); player.playVideo(); } return; }
+    else if(c.t==='hi') return send();
+    changed();
+  }
+  let mq=null;
+  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30)}); }
+  function changed(){
+    save('ktv.state',{now:S.now,q:S.q});
+    $('#idle').style.display=S.now?'none':'flex';
+    $('#nowT').innerHTML=S.now?'♪ '+esc(S.now.title)+(S.now.by?' <span class="small">・'+esc(S.now.by)+' 點的</span>':''):'<span class="small">目前沒有播放</span>';
+    $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
+    $('#bPause').disabled=$('#bReplay').disabled=!S.now; $('#bSkip').disabled=!S.now&&!S.q.length;
+    const n=$('#nextUp'); n.textContent=S.q[0]?'下一首：'+S.q[0].title:''; n.classList.toggle('has',!!S.q[0]);
+    renderList(); send();
+  }
+  UI.state=()=>S; UI.act=c=>handle(Object.assign({by:''},c));
+  bindSearch();
+  $('#bPause').onclick=()=>handle({t:'pause'});
+  $('#bReplay').onclick=()=>handle({t:'replay'});
+  $('#bSkip').onclick=()=>handle({t:'skip'});
+  $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen) st.requestFullscreen(); else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
+  changed();
+  if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
+  window.__ktv={S,handle,room,player:()=>player};
+}
+
+// ---------- 手機點歌模式 ----------
+function startRemote(){
+  const room=JOIN; let S={now:null,q:[],paused:false},got=false;
+  $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
+    '<input class="name" id="nm" placeholder="你的名字" maxlength="10"></header>'+
+    '<div id="remote"><div class="now"><div class="small">正在唱</div><div class="t" id="nowT">連線中…</div>'+
+      '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div></div>'+
+      searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
+  const nm=$('#nm'); nm.value=load('ktv.name','');
+  nm.onchange=()=>save('ktv.name',clean(nm.value));
+  const pub=c=>{ if(!mq||!mq.up){ toast('還沒連上電視，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
+  UI.state=()=>S; UI.hist=()=>S.hist||[];
+  UI.act=c=>{ c.by=clean(nm.value); if(pub(c)&&c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title); };
+  bindSearch();
+  $('#bPause').onclick=()=>pub({t:'pause'});
+  $('#bReplay').onclick=()=>pub({t:'replay'});
+  $('#bSkip').onclick=()=>pub({t:'skip'});
+  function draw(){
+    $('#nowT').textContent=S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到電視，請確認電視畫面已打開、房號正確');
+    $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
+    renderList();
+  }
+  const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
+    o=>{ if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[]}; draw(); },
+    up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
+  draw(); $('#nowT').textContent='連線中…';
+  window.__ktv={S:()=>S,mq};
+}
+
+if(IS_REMOTE) startRemote(); else startTV();
+</script>
+</body>
+</html>
