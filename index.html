@@ -54,7 +54,7 @@ header .sp{flex:1}
 .opt{padding:0 14px 8px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim)}
 .opt label{display:flex;align-items:center;gap:6px}
 .tabs{display:flex;gap:4px;padding:0 14px}
-.tabs button{flex:1;background:transparent;border-radius:10px 10px 0 0;padding:8px 2px;color:var(--dim);white-space:nowrap}
+.tabs button{flex:1 1 auto;background:transparent;border-radius:10px 10px 0 0;padding:8px 4px;color:var(--dim);white-space:nowrap;font-size:14px}
 .tabs button.on{background:var(--panel2);color:var(--text);font-weight:700}
 .list{flex:1;overflow:auto;background:var(--panel2);margin:0 14px 14px;border-radius:0 0 10px 10px;padding:6px}
 .it{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px}
@@ -446,14 +446,15 @@ registerProcessor('ktv-pitch',KtvPitch);`;
 let results=null,hidden=0,maybeAt=-1,tab='search',searching=false;
 // 推薦＝好樂迪點播排行、最新＝好樂迪新進歌曲（經過自己的 Cloudflare 服務抓，快取 6 小時）
 const CHART_LANG=[['c','國語','tc'],['t','台語','tt'],['g','粵語','ct'],['w','英語','et'],['j','日語','jt'],['k','韓語','kt']];
-let chart=null; // {m:'top'|'new', lang, list, err}
+const CH={top:{lang:load('ktv.chartLang.top',load('ktv.chartLang','c')),list:null},new:{lang:load('ktv.chartLang.new',load('ktv.chartLang','c')),list:null}}; // 推薦、最新各自記語言和清單
 async function openChart(m,lang){
-  lang=lang||load('ktv.chartLang','c'); save('ktv.chartLang',lang);
-  const L=CHART_LANG.find(x=>x[0]===lang)||CHART_LANG[0];
-  chart={m,lang:L[0],list:null}; tab='search'; renderList();
-  try{ const r=await fetch(API+'/chart?m='+m+'&lt='+(m==='top'?L[2]:L[0])); const j=await r.json(); if(chart&&chart.m===m&&chart.lang===L[0]) chart.list=Array.isArray(j)?j:[],chart.err=!Array.isArray(j); }
-  catch(e){ if(chart) chart.list=[],chart.err=true; }
-  renderList();
+  const C=CH[m]; if(lang){ C.lang=lang; save('ktv.chartLang.'+m,lang); }
+  const L=CHART_LANG.find(x=>x[0]===C.lang)||CHART_LANG[0],want=L[0];
+  C.list=null; C.err=false; C.busy=true; renderList();
+  let list=[],err=false;
+  try{ const j=await (await fetch(API+'/chart?m='+m+'&lt='+(m==='top'?L[2]:L[0]))).json(); if(Array.isArray(j)) list=j; else err=true; }catch(e){ err=true; }
+  if(C.lang!==want) return; // 讀的時候又換了語言
+  C.list=list; C.err=err; C.busy=false; renderList();
 }
 // 從排行榜點歌：用歌名＋歌手找 YouTube 伴唱版，標題要有歌名，伴唱版優先
 async function findKaraoke(title,singer){
@@ -480,8 +481,8 @@ const UI={};   // 各模式提供 act(cmd)、state()
 
 function searchHTML(){
   return '<div class="search"><input id="q" placeholder="輸入歌名或歌手，或貼上 YouTube 網址" enterkeyhint="search" autocomplete="off"><button class="main" id="go">搜尋</button></div>'+
-    '<div class="opt"><label><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label><span class="sp"></span><button class="qk" data-chart="top">🔥 推薦</button><button class="qk" data-chart="new">🆕 最新</button></div>'+
-    '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="queue">已點</button><button data-tab="hist">唱過的</button><button data-tab="pl">歌單</button><button data-tab="local">電腦的歌</button></div>'+
+    '<div class="opt"><label><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label></div>'+
+    '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="top">推薦</button><button data-tab="new">最新</button><button data-tab="queue">已點</button><button data-tab="hist">唱過</button><button data-tab="pl">歌單</button><button data-tab="local">電腦的歌</button></div>'+
     '<div class="list" id="list"></div>';
 }
 function bindSearch(){
@@ -489,15 +490,14 @@ function bindSearch(){
   $('#go').onclick=go;
   $('#q').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); $('#q').blur(); } };
   $('#kOnly').onchange=e=>{ save('ktv.kOnly',e.target.checked); if(results&&$('#q').value.trim()) doSearch($('#q').value); };
-  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; renderList(); });
-  document.querySelectorAll('.opt [data-chart]').forEach(b=>b.onclick=()=>{ if(chart&&chart.m===b.dataset.chart&&tab==='search'){ chart=null; renderList(); } else openChart(b.dataset.chart); });
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; if(CH[tab]&&!CH[tab].list&&!CH[tab].busy) openChart(tab); else renderList(); });
   $('#list').onclick=e=>{
     const b=e.target.closest('button'); if(!b) return;
     if(b.dataset.hot){ $('#q').value=b.dataset.hot; doSearch(b.dataset.hot); return; }
     const a=b.dataset.a,i=+b.dataset.i;
-    if(b.dataset.lang&&chart){ openChart(chart.m,b.dataset.lang); return; }
+    if(b.dataset.lang&&CH[tab]){ openChart(tab,b.dataset.lang); return; }
     if(a==='cFind'||a==='cAdd'||a==='cIns'){
-      const c=chart&&chart.list&&chart.list[i]; if(!c) return;
+      const c=CH[tab]&&CH[tab].list&&CH[tab].list[i]; if(!c) return;
       if(a==='cFind'){ const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); return; }
       b.disabled=true; b.textContent='找伴唱中…';
       findKaraoke(c.title,c.singer).then(r=>{
@@ -524,7 +524,7 @@ function bindSearch(){
 }
 async function doSearch(text){
   text=String(text||'').trim(); if(!text) return;
-  tab='search'; chart=null;
+  tab='search';
   const id=ytId(text);
   if(id){ // 貼上網址：直接查這支影片
     results=[{id,title:'讀取中…'}]; renderList();
@@ -578,10 +578,9 @@ function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
   document.querySelectorAll('.tabs button').forEach(b=>{ b.classList.toggle('on',b.dataset.tab===tab); if(b.dataset.tab==='queue') b.textContent='已點'+(st.q.length?'('+st.q.length+')':''); });
   let h='';
-  document.querySelectorAll('.opt [data-chart]').forEach(b=>b.classList.toggle('on',!!chart&&tab==='search'&&chart.m===b.dataset.chart));
-  if(tab==='search'&&chart){
-    const C=chart;
-    h='<div class="chartHd">'+(C.m==='top'?'🔥 推薦：這週 KTV 最多人點的歌':'🆕 最新：KTV 新進的歌')+' <span class="small">（好樂迪）</span></div>'+
+  if(CH[tab]){
+    const C=CH[tab];
+    h='<div class="chartHd">'+(tab==='top'?'🔥 推薦：這週 KTV 最多人點的歌':'🆕 最新：KTV 新進的歌')+' <span class="small">（好樂迪）</span></div>'+
       '<div class="plBar">'+CHART_LANG.map(([k,n])=>'<button class="chip'+(k===C.lang?' on':'')+'" data-lang="'+k+'">'+n+'</button>').join('')+'</div>';
     if(!C.list) h+='<div class="empty">讀取中…</div>';
     else if(!C.list.length) h+='<div class="empty">'+(C.err?'排行榜暫時讀不到，等一下再試':'這一類目前沒有歌')+'</div>';
