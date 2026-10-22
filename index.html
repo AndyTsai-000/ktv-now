@@ -173,7 +173,8 @@ const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'')
 const IS_REMOTE=JOIN.length===6;
 const IS_VR=new URLSearchParams(location.search).get('vr')==='1';
 const CAN_VR=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-const HOT=['周杰倫','五月天','告五人','蔡依林','田馥甄','伍佰','張學友','鄧紫棋','台語經典','民歌','生日快樂歌','對唱情歌'];
+// 搜尋頁的快捷鍵：[顯示的字, 實際搜尋的字]（外文用英文搜比較找得到伴唱版）
+const HOT=[['周杰倫'],['五月天'],['告五人'],['蔡依林'],['田馥甄'],['張惠妹'],['林俊傑'],['伍佰'],['張學友'],['鄧紫棋'],['華語經典'],['台語經典'],['大陸歌曲'],['外文歌曲','English pop karaoke version'],['對唱情歌']];
 
 const $=s=>document.querySelector(s);
 const load=(k,d)=>{ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } };
@@ -493,7 +494,7 @@ function bindSearch(){
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; if(CH[tab]&&!CH[tab].list&&!CH[tab].busy) openChart(tab); else renderList(); });
   $('#list').onclick=e=>{
     const b=e.target.closest('button'); if(!b) return;
-    if(b.dataset.hot){ $('#q').value=b.dataset.hot; doSearch(b.dataset.hot); return; }
+    if(b.dataset.hot){ const hq=(HOT.find(x=>x[0]===b.dataset.hot)||[])[1]||b.dataset.hot; $('#q').value=b.dataset.hot; doSearch(hq); return; }
     const a=b.dataset.a,i=+b.dataset.i;
     if(b.dataset.lang&&CH[tab]){ openChart(tab,b.dataset.lang); return; }
     if(a==='cFind'||a==='cAdd'||a==='cIns'){
@@ -540,8 +541,13 @@ async function doSearch(text){
   if(got.every(j=>!Array.isArray(j))) toast('搜尋失敗，請確認網路後再試一次');
   const seen=new Set(),all=[];
   for(const j of got) if(Array.isArray(j)) for(const v of j) if(!seen.has(v.id)){ seen.add(v.id); all.push(v); }
-  if(kOnly){ const sure=all.filter(isKaraoke),maybe=all.filter(maybeKaraoke); results=sure.concat(maybe); maybeAt=maybe.length?sure.length:-1; } else results=all;
-  hidden=all.length-results.length;
+  const mins=l=>{ const p=String(l||'').split(':').map(Number); return p.length>=3?p[0]*60+p[1]:p.length===2?p[0]:0; };
+  const total=all.length;
+  if(kOnly){
+    const ok=all.filter(v=>mins(v.len)<10); // 10 分鐘以上的串燒、合輯唱不了，算進隱藏
+    const sure=ok.filter(isKaraoke),maybe=ok.filter(maybeKaraoke); results=sure.concat(maybe); maybeAt=maybe.length?sure.length:-1;
+  } else results=all;
+  hidden=total-results.length;
   searching=false; renderList();
 }
 const hist=()=>UI.hist?UI.hist():load('ktv.hist',[]);
@@ -588,10 +594,10 @@ function renderList(){
       '<button class="main" data-a="cAdd" data-i="'+i+'">點歌</button><button data-a="cIns" data-i="'+i+'">插播</button><button data-a="cFind" data-i="'+i+'" title="列出 YouTube 上的版本自己挑">找版本</button></div>').join('');
   } else if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';
-    else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(t=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
+    else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(([t])=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
     else if(!results.length) h='<div class="empty">找不到'+(hidden?'伴唱版':'')+'，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
     else h=results.map((s,i)=>(i===maybeAt?'<div class="maybeHd">以下標題只寫「KTV」，可能有原唱（可以按 🎤 去人聲）</div>':'')+rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('')+
-      (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
+      (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、串燒、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
     h=(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
       (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
