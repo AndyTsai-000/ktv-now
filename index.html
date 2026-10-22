@@ -400,7 +400,7 @@ function startRemote(){
 
 // ---------- 去人聲小視窗 ----------
 // 原理跟 KTV 機台的消音一樣：人聲多半在左右聲道正中間，左減右就把它扣掉；
-// 扣掉時低音也會一起不見，所以把中間聲道 150Hz 以下的低音補回來
+// 扣掉時低音、鼓和鈸也會一起變小，所以中間聲道只扣人聲集中的頻段（約 180Hz～6kHz），其他補回來，再自動把音量拉回原音大小
 function startVR(){
   document.title='去人聲 - 隨時唱 KTV';
   const bc=new BroadcastChannel('ktv-vr');
@@ -443,16 +443,26 @@ function startVR(){
     const lP=g(1),rN=g(-1),lH=g(0.5),rH=g(0.5);
     sp.connect(lP,0); sp.connect(rN,1); lP.connect(side); rN.connect(side);
     sp.connect(lH,0); sp.connect(rH,1); lH.connect(mid); rH.connect(mid);
-    const lp1=ctx.createBiquadFilter(),lp2=ctx.createBiquadFilter(); lp1.type=lp2.type='lowpass'; lp1.frequency.value=lp2.frequency.value=150;
-    mid.connect(lp1); lp1.connect(lp2);
-    wet=g(0); dry=g(1); const bass=g(1.5); side.connect(wet); lp2.connect(bass); bass.connect(wet); src.connect(dry);
+    const filt=(type,hz)=>{ const a=ctx.createBiquadFilter(),b=ctx.createBiquadFilter(); a.type=b.type=type; a.frequency.value=b.frequency.value=hz; a.connect(b); return [a,b]; };
+    const [lp1,lp2]=filt('lowpass',180),[hp1,hp2]=filt('highpass',6000),bass=g(1.5),treble=g(1.2),proc=g(1);
+    mid.connect(lp1); lp2.connect(bass); mid.connect(hp1); hp2.connect(treble);
+    // sideAmp：自動把兩側的樂器放大（最多 4 倍），補回跟著人聲一起被扣掉的音量；限幅器避免爆音
+    const sideAmp=g(1),lim=ctx.createDynamicsCompressor();
+    side.connect(sideAmp); sideAmp.connect(proc); bass.connect(proc); treble.connect(proc);
+    lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.003; lim.release.value=0.2;
+    wet=g(0); dry=g(1); proc.connect(lim); lim.connect(wet); src.connect(dry);
     wet.connect(ctx.destination); dry.connect(ctx.destination);
     // 量中間（人聲）和兩側的音量：兩側幾乎沒聲音就是單聲道，消不掉
-    const aS=ctx.createAnalyser(),aM=ctx.createAnalyser(); aS.fftSize=aM.fftSize=2048; side.connect(aS); mid.connect(aM);
-    const bS=new Float32Array(2048),bM=new Float32Array(2048),rms=(a,b)=>{ a.getFloatTimeDomainData(b); let x=0; for(const v of b) x+=v*v; return Math.sqrt(x/b.length); };
-    let quiet=0,loud=0;
+    const an=node=>{ const a=ctx.createAnalyser(); a.fftSize=2048; node.connect(a); return a; };
+    const above200=node=>{ const h=ctx.createBiquadFilter(); h.type='highpass'; h.frequency.value=200; node.connect(h); return h; };
+    const aS=an(side),aM=an(mid),aMh=an(above200(mid)),aSh=an(above200(side)),aPh=an(above200(proc));
+    const buf=new Float32Array(2048),rms=a=>{ a.getFloatTimeDomainData(buf); let x=0; for(const v of buf) x+=v*v; return Math.sqrt(x/buf.length); };
+    let quiet=0,loud=0,boost=1;
     timer=setInterval(()=>{
-      const sv=rms(aS,bS),mv=rms(aM,bM);
+      const sv=rms(aS),mv=rms(aM);
+      // 只比 200Hz 以上：原音＝√(中間² + 兩側²)（side 是左減右＝兩側的兩倍）；人聲拿掉了，目標抓原音的七成
+      const orig=Math.sqrt(rms(aMh)**2+rms(aSh)**2/4),now=rms(aPh)/boost;
+      if(orig>0.01&&now>0.0005){ boost+=(Math.min(4,Math.max(1,orig*0.7/now))-boost)*0.3; sideAmp.gain.setTargetAtTime(boost,ctx.currentTime,0.3); window.__vr.boost=boost; }
       $('#vrM').style.width=Math.min(100,mv*300)+'%';
       if(mv<0.01) return; // 沒聲音（換歌、廣告空檔）時不判斷
       if(sv/mv<0.04){ loud=0; if(++quiet===6&&!mono){ mono=true; mix(); if(on) bc.postMessage({t:'mono'}); } }
