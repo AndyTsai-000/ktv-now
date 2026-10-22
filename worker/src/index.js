@@ -44,6 +44,29 @@ export default {
     const h = cors(env, req);
     if (req.method === 'OPTIONS') return new Response(null, { headers: { ...h, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
     const u = new URL(req.url);
+    // 好樂迪 KTV 的點播排行（m=top）和新進歌曲（m=new），快取 6 小時
+    if (u.pathname === '/chart' && h['Access-Control-Allow-Origin']) {
+      const m = u.searchParams.get('m') === 'new' ? 'new' : 'top';
+      const lt = (u.searchParams.get('lt') || '').replace(/[^a-z]/g, '').slice(0, 2) || (m === 'new' ? 'c' : 'tc');
+      const key = new Request('https://cache.ktv/chart?m=' + m + '&lt=' + lt);
+      const hit = await caches.default.match(key);
+      if (hit) return new Response(hit.body, { headers: { ...h, 'content-type': 'application/json' } });
+      const page = async p => {
+        const r = await fetch('https://www.holiday.com.tw/Ashx/SongInfo.ashx', { method: 'POST', body: JSON.stringify([{ m, ltype: lt, page: p }]),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.holiday.com.tw/SongInfo/SongList.aspx' } });
+        const j = (await r.json())[0] || {};
+        return { list: j.DataList || [], max: ((j.Page || [])[0] || {}).MaxPage || 1 };
+      };
+      try {
+        const d = s => { try { return decodeURIComponent(s || ''); } catch (e) { return String(s || ''); } };
+        const first = await page(1), rest = first.max >= 2 ? (await page(2)).list : [];
+        const list = first.list.concat(rest).map((x, i) => ({ rank: m === 'top' ? (+d(x.thisweek) || i + 1) : i + 1, title: d(x.songname), singer: d(x.singer), last: d(x.lastweek) }))
+          .filter(x => x.title);
+        const body = JSON.stringify(list);
+        if (list.length) ctx.waitUntil(caches.default.put(key, new Response(body, { headers: { 'content-type': 'application/json', 'Cache-Control': 'max-age=21600' } })));
+        return new Response(body, { headers: { ...h, 'content-type': 'application/json' } });
+      } catch (e) { return Response.json({ error: '排行榜讀取失敗' }, { status: 502, headers: h }); }
+    }
     // 貼上 YouTube 網址時用來查歌名
     if (u.pathname === '/info' && h['Access-Control-Allow-Origin']) {
       const id = (u.searchParams.get('id') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 11);

@@ -52,6 +52,7 @@ header .sp{flex:1}
 .search input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
 .search input:focus{border-color:var(--pink)}
 .opt{padding:0 14px 8px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim)}
+.opt label{display:flex;align-items:center;gap:6px}
 .tabs{display:flex;gap:4px;padding:0 14px}
 .tabs button{flex:1;background:transparent;border-radius:10px 10px 0 0;padding:8px 2px;color:var(--dim);white-space:nowrap}
 .tabs button.on{background:var(--panel2);color:var(--text);font-weight:700}
@@ -97,6 +98,14 @@ header .sp{flex:1}
   28%{transform:translate(-50%,-50%) scale(1) rotate(0)}78%{opacity:1}100%{transform:translate(-50%,-62%) scale(1.04);opacity:0}}
 
 .maybeHd{margin:10px 6px 4px;padding:6px 8px;border-top:1px dashed var(--line);font-size:12px;color:var(--gold)}
+
+/* 推薦／最新 */
+.opt .sp{flex:1}
+.opt .qk{padding:4px 10px;font-size:13px;border-radius:999px;background:var(--panel2);border:1px solid var(--line)}
+.opt .qk.on{background:var(--pink);border-color:var(--pink);color:#fff}
+.chartHd{padding:8px 8px 2px;font-weight:700}
+.chartHd .small{font-weight:400}
+.it .n.rk{width:28px;font-size:15px}
 
 /* 歌單 */
 .plBar{display:flex;gap:6px;flex-wrap:wrap;padding:6px}
@@ -435,6 +444,31 @@ registerProcessor('ktv-pitch',KtvPitch);`;
 
 // ---------- 共用：搜尋與清單 ----------
 let results=null,hidden=0,maybeAt=-1,tab='search',searching=false;
+// 推薦＝好樂迪點播排行、最新＝好樂迪新進歌曲（經過自己的 Cloudflare 服務抓，快取 6 小時）
+const CHART_LANG=[['c','國語','tc'],['t','台語','tt'],['g','粵語','ct'],['w','英語','et'],['j','日語','jt'],['k','韓語','kt']];
+let chart=null; // {m:'top'|'new', lang, list, err}
+async function openChart(m,lang){
+  lang=lang||load('ktv.chartLang','c'); save('ktv.chartLang',lang);
+  const L=CHART_LANG.find(x=>x[0]===lang)||CHART_LANG[0];
+  chart={m,lang:L[0],list:null}; tab='search'; renderList();
+  try{ const r=await fetch(API+'/chart?m='+m+'&lt='+(m==='top'?L[2]:L[0])); const j=await r.json(); if(chart&&chart.m===m&&chart.lang===L[0]) chart.list=Array.isArray(j)?j:[],chart.err=!Array.isArray(j); }
+  catch(e){ if(chart) chart.list=[],chart.err=true; }
+  renderList();
+}
+// 從排行榜點歌：用歌名＋歌手找 YouTube 伴唱版，標題要有歌名，伴唱版優先
+async function findKaraoke(title,singer){
+  const who=String(singer||'').split(/[、．,，&＆\/]/)[0].trim(),q=title+' '+who;
+  const got=await Promise.all([q+' 伴奏',q+' KTV'].map(x=>fetch(API+'/search?q='+encodeURIComponent(x)).then(r=>r.json()).catch(()=>[])));
+  const seen=new Set(),all=[]; for(const j of got) if(Array.isArray(j)) for(const v of j) if(!seen.has(v.id)){ seen.add(v.id); all.push(v); }
+  const norm=x=>String(x).toLowerCase().replace(/[\s()（）【】\[\]《》「」'"~～.．,，!！?？-]/g,'');
+  const has=v=>norm(v.title).includes(norm(title));
+  const score=v=>(has(v)?4:0)+(isKaraoke(v)?3:maybeKaraoke(v)?1:-9);
+  const best=all.filter(v=>has(v)&&score(v)>4).sort((a,b)=>score(b)-score(a))[0];
+  if(best) return {sg:song(best),karaoke:true};
+  // 太新的歌常常還沒有人上傳伴唱版：先放原版（避開翻唱、教學、自己唱的錄影）
+  const orig=all.find(v=>has(v)&&!NOT_KARAOKE.test(v.title)&&!/live|現場|演唱會/i.test(v.title));
+  return orig?{sg:song(orig),karaoke:false}:null;
+}
 // 「只找 KTV 伴唱版」：標題寫明伴唱／伴奏的放上面；有人聲的導唱版、自己唱的錄影、翻唱、教學不要
 const KARAOKE=/伴唱|伴奏|karaoke|卡拉\s*ok|消音|去人聲|無人聲|純音樂|instrumental|off\s*vocal|backing\s*track|左伴右唱|右伴左唱/i;
 const NOT_KARAOKE=/教學|教你唱|tutorial|reaction|cover|ai voice|翻唱|ktv\s*原唱|[(（【]原唱[)）】]|原唱版|我唱|歡唱|包廂|唱得|副歌|直播|小哥哥|小姐姐/i;
@@ -446,7 +480,7 @@ const UI={};   // 各模式提供 act(cmd)、state()
 
 function searchHTML(){
   return '<div class="search"><input id="q" placeholder="輸入歌名或歌手，或貼上 YouTube 網址" enterkeyhint="search" autocomplete="off"><button class="main" id="go">搜尋</button></div>'+
-    '<label class="opt"><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label>'+
+    '<div class="opt"><label><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label><span class="sp"></span><button class="qk" data-chart="top">🔥 推薦</button><button class="qk" data-chart="new">🆕 最新</button></div>'+
     '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="queue">已點</button><button data-tab="hist">唱過的</button><button data-tab="pl">歌單</button><button data-tab="local">電腦的歌</button></div>'+
     '<div class="list" id="list"></div>';
 }
@@ -456,10 +490,22 @@ function bindSearch(){
   $('#q').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); $('#q').blur(); } };
   $('#kOnly').onchange=e=>{ save('ktv.kOnly',e.target.checked); if(results&&$('#q').value.trim()) doSearch($('#q').value); };
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; renderList(); });
+  document.querySelectorAll('.opt [data-chart]').forEach(b=>b.onclick=()=>{ if(chart&&chart.m===b.dataset.chart&&tab==='search'){ chart=null; renderList(); } else openChart(b.dataset.chart); });
   $('#list').onclick=e=>{
     const b=e.target.closest('button'); if(!b) return;
     if(b.dataset.hot){ $('#q').value=b.dataset.hot; doSearch(b.dataset.hot); return; }
     const a=b.dataset.a,i=+b.dataset.i;
+    if(b.dataset.lang&&chart){ openChart(chart.m,b.dataset.lang); return; }
+    if(a==='cFind'||a==='cAdd'||a==='cIns'){
+      const c=chart&&chart.list&&chart.list[i]; if(!c) return;
+      if(a==='cFind'){ const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); return; }
+      b.disabled=true; b.textContent='找伴唱中…';
+      findKaraoke(c.title,c.singer).then(r=>{
+        if(r){ UI.act({t:'add',s:r.sg,top:a==='cIns'}); b.textContent='✓ 已點'; if(!r.karaoke) toast('「'+c.title+'」還沒有伴唱版，先放原版，可以按 🎤 去人聲',5000); }
+        else { b.textContent='找不到'; toast('找不到「'+c.title+'」的伴唱版，幫你列出搜尋結果自己挑'); const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); }
+      });
+      return;
+    }
     if(a==='add'||a==='ins'){
       const src=tab==='hist'?hist():tab==='local'?UI.lib():tab==='pl'?(plCur()||{songs:[]}).songs:results; const s=src&&src[i]; if(!s) return;
       UI.act({t:'add',s:song(s),top:a==='ins'});
@@ -478,7 +524,7 @@ function bindSearch(){
 }
 async function doSearch(text){
   text=String(text||'').trim(); if(!text) return;
-  tab='search';
+  tab='search'; chart=null;
   const id=ytId(text);
   if(id){ // 貼上網址：直接查這支影片
     results=[{id,title:'讀取中…'}]; renderList();
@@ -532,7 +578,16 @@ function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
   document.querySelectorAll('.tabs button').forEach(b=>{ b.classList.toggle('on',b.dataset.tab===tab); if(b.dataset.tab==='queue') b.textContent='已點'+(st.q.length?'('+st.q.length+')':''); });
   let h='';
-  if(tab==='search'){
+  document.querySelectorAll('.opt [data-chart]').forEach(b=>b.classList.toggle('on',!!chart&&tab==='search'&&chart.m===b.dataset.chart));
+  if(tab==='search'&&chart){
+    const C=chart;
+    h='<div class="chartHd">'+(C.m==='top'?'🔥 推薦：這週 KTV 最多人點的歌':'🆕 最新：KTV 新進的歌')+' <span class="small">（好樂迪）</span></div>'+
+      '<div class="plBar">'+CHART_LANG.map(([k,n])=>'<button class="chip'+(k===C.lang?' on':'')+'" data-lang="'+k+'">'+n+'</button>').join('')+'</div>';
+    if(!C.list) h+='<div class="empty">讀取中…</div>';
+    else if(!C.list.length) h+='<div class="empty">'+(C.err?'排行榜暫時讀不到，等一下再試':'這一類目前沒有歌')+'</div>';
+    else h+=C.list.map((c,i)=>'<div class="it"><span class="n rk">'+esc(c.rank)+'</span><div class="tx"><div class="t" title="'+esc(c.title)+'">'+esc(c.title)+'</div><div class="s">'+esc(c.singer)+'</div></div>'+
+      '<button class="main" data-a="cAdd" data-i="'+i+'">點歌</button><button data-a="cIns" data-i="'+i+'">插播</button><button data-a="cFind" data-i="'+i+'" title="列出 YouTube 上的版本自己挑">找版本</button></div>').join('');
+  } else if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';
     else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(t=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
     else if(!results.length) h='<div class="empty">找不到'+(hidden?'伴唱版':'')+'，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
