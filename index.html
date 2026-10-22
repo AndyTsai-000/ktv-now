@@ -192,6 +192,7 @@ function bindSearch(){
       UI.act({t:'add',s:song(s),top:a==='ins'});
       b.textContent='✓ 已點'; b.disabled=true;
     } else if(a==='del'||a==='top') UI.act({t:a,k:b.dataset.k});
+    else if(a==='hdel') UI.act({t:'hdel',id:b.dataset.id});
   };
 }
 async function doSearch(text){
@@ -236,7 +237,7 @@ function renderList(){
       (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
   } else {
     const H=hist();
-    h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
+    h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button><button data-a="hdel" data-id="'+esc(s.id)+'" title="從唱過的刪除" aria-label="從唱過的刪除">✕</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
   }
   el.innerHTML=h;
 }
@@ -320,6 +321,7 @@ function startTV(){
     else if(c.t==='pause'){ if(!ready||!S.now) return; if(S.paused) player.playVideo(); else player.pauseVideo(); S.paused=!S.paused; }
     else if(c.t==='replay'){ if(ready&&S.now){ player.seekTo(0,true); player.playVideo(); } return; }
     else if(c.t==='hi') return send();
+    else if(c.t==='hdel') save('ktv.hist',hist().filter(h=>h.id!==c.id));
     changed();
   }
   let mq=null;
