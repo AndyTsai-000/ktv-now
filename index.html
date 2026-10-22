@@ -242,7 +242,7 @@ function renderList(){
   el.innerHTML=h;
 }
 let toastT=0;
-function toast(t){ const el=$('#toast'); if(!el) return; el.textContent=t; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),3000); }
+function toast(t,ms){ const el=$('#toast'); if(!el) return; el.textContent=t; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),ms||3000); }
 
 // ---------- 電視（主機）模式 ----------
 function startTV(){
@@ -341,9 +341,10 @@ function startTV(){
   $('#bReplay').onclick=()=>handle({t:'replay'});
   $('#bSkip').onclick=()=>handle({t:'skip'});
   $('#exitFs').onclick=()=>{ if(document.fullscreenElement) document.exitFullscreen(); };
+  let vrIsLive=()=>false;
   // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
   if(CAN_VR){
-    const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false;
+    const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false; vrIsLive=()=>vrLive;
     const vrBtn=()=>{ const b=$('#bVr'); b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關'):'🎤 去人聲'; };
     // 使用者開／關去人聲時記在正在唱的這首
     vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
@@ -364,7 +365,9 @@ function startTV(){
     };
     bc.postMessage({t:'ask'});
   }
-  $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen) st.requestFullscreen().catch(()=>{}); else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
+  $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen){ st.requestFullscreen().catch(()=>{});
+    // 分頁被分享聲音時，瀏覽器只讓網頁放大到分頁大小，要再按 F11
+    if(vrIsLive()) setTimeout(()=>toast('開著去人聲時，再按鍵盤 F11 才是全螢幕（離開也按 F11）',6000),300); } else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
   changed();
   if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   window.__ktv={S,handle,room,player:()=>player};
