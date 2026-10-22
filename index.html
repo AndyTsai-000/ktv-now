@@ -568,6 +568,8 @@ function toast(t,ms){ const el=$('#toast'); if(!el) return; el.textContent=t; el
 function startTV(){
   let room=String(load('ktv.room',''));
   if(!/^\d{6}$/.test(room)){ room=String(100000+Math.floor(Math.random()*900000)); save('ktv.room',room); }
+  // 「唱過的」只留這次打開瀏覽器以來的（使用者指定）：分頁的 sessionStorage 關掉瀏覽器就沒了，重新整理還在；歌單、已點歌曲照樣保留
+  try{ if(!sessionStorage.getItem('ktv.session')){ sessionStorage.setItem('ktv.session','1'); save('ktv.hist',[]); } }catch(e){}
   const S=load('ktv.state',{now:null,q:[]}); S.paused=false;
   if(!Array.isArray(S.q)) S.q=[];
   const link=location.origin+location.pathname+'?r='+room;
