@@ -445,7 +445,7 @@ registerProcessor('ktv-pitch',KtvPitch);`;
 
 // ---------- 共用：搜尋與清單 ----------
 let results=null,hidden=0,maybeAt=-1,tab='search',searching=false;
-// 推薦＝好樂迪點播排行、最新＝好樂迪新進歌曲（經過自己的 Cloudflare 服務抓，快取 6 小時）
+// 推薦＝好樂迪、錢櫃點播排行綜合（再用 KKBOX 熱門補到 100 首）；最新＝兩家新進歌曲＋KKBOX 新歌輪流排（Cloudflare 服務 /chart2 整理，快取 6 小時）
 const CHART_LANG=[['c','國語','tc'],['t','台語','tt'],['g','粵語','ct'],['w','英語','et'],['j','日語','jt'],['k','韓語','kt']];
 const CH={top:{lang:load('ktv.chartLang.top',load('ktv.chartLang','c')),list:null},new:{lang:load('ktv.chartLang.new',load('ktv.chartLang','c')),list:null}}; // 推薦、最新各自記語言和清單
 async function openChart(m,lang){
@@ -453,7 +453,7 @@ async function openChart(m,lang){
   const L=CHART_LANG.find(x=>x[0]===C.lang)||CHART_LANG[0],want=L[0];
   C.list=null; C.err=false; C.busy=true; renderList();
   let list=[],err=false;
-  try{ const j=await (await fetch(API+'/chart?m='+m+'&lt='+(m==='top'?L[2]:L[0]))).json(); if(Array.isArray(j)) list=j; else err=true; }catch(e){ err=true; }
+  try{ const j=await (await fetch(API+'/chart2?m='+m+'&lang='+L[0])).json(); if(Array.isArray(j)) list=j; else err=true; }catch(e){ err=true; }
   if(C.lang!==want) return; // 讀的時候又換了語言
   C.list=list; C.err=err; C.busy=false; renderList();
 }
@@ -594,11 +594,11 @@ function renderList(){
   let h='';
   if(CH[tab]){
     const C=CH[tab];
-    h='<div class="chartHd">'+(tab==='top'?'🔥 推薦：這週 KTV 最多人點的歌':'🆕 最新：KTV 新進的歌')+' <span class="small">（好樂迪）</span></div>'+
+    h='<div class="chartHd">'+(tab==='top'?'🔥 推薦：這週 KTV 最多人點的歌':'🆕 最新：KTV 新進的歌')+' <span class="small">（好樂迪・錢櫃・KKBOX 綜合'+(C.list&&C.list.length?'，'+C.list.length+' 首':'')+'）</span></div>'+
       '<div class="plBar">'+CHART_LANG.map(([k,n])=>'<button class="chip'+(k===C.lang?' on':'')+'" data-lang="'+k+'">'+n+'</button>').join('')+'</div>';
     if(!C.list) h+='<div class="empty">讀取中…</div>';
     else if(!C.list.length) h+='<div class="empty">'+(C.err?'排行榜暫時讀不到，等一下再試':'這一類目前沒有歌')+'</div>';
-    else h+=C.list.map((c,i)=>'<div class="it"><span class="n rk">'+esc(c.rank)+'</span><div class="tx"><div class="t" title="'+esc(c.title)+'">'+esc(c.title)+'</div><div class="s">'+esc(c.singer)+'</div></div>'+
+    else h+=C.list.map((c,i)=>'<div class="it"><span class="n rk">'+esc(c.rank)+'</span><div class="tx"><div class="t" title="'+esc(c.title)+'">'+esc(c.title)+'</div><div class="s">'+esc(c.singer)+(c.src?' ・ <span title="出現在哪些排行榜（數字是名次）">'+esc(c.src)+'</span>':'')+'</div></div>'+
       '<button class="main" data-a="cAdd" data-i="'+i+'">點歌</button><button data-a="cIns" data-i="'+i+'">插播</button><button data-a="cFind" data-i="'+i+'" title="列出 YouTube 上的版本自己挑">找版本</button></div>').join('');
   } else if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';

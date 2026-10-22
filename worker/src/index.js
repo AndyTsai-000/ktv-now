@@ -1,3 +1,4 @@
+import { combinedChart } from './charts.js';
 // 隨時唱 KTV 的搜尋代理：不用 YouTube API 金鑰，直接讀 YouTube 搜尋頁裡的 ytInitialData
 const ok = (env, origin) => (env.APP_ORIGINS || '').split(',').some(o => o && origin === o.trim());
 
@@ -44,6 +45,18 @@ export default {
     const h = cors(env, req);
     if (req.method === 'OPTIONS') return new Response(null, { headers: { ...h, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
     const u = new URL(req.url);
+    // 綜合排行：好樂迪＋錢櫃＋KKBOX，m=top 推薦、m=new 最新，lang=c/t/g/w/j/k，快取 6 小時
+    if (u.pathname === '/chart2' && h['Access-Control-Allow-Origin']) {
+      const m = u.searchParams.get('m') === 'new' ? 'new' : 'top';
+      const lang = (u.searchParams.get('lang') || 'c').replace(/[^a-z]/g, '').slice(0, 1) || 'c';
+      const key = new Request('https://cache.ktv/chart2?v=2&m=' + m + '&lang=' + lang);
+      const hit = await caches.default.match(key);
+      if (hit) return new Response(hit.body, { headers: { ...h, 'content-type': 'application/json' } });
+      const list = await combinedChart(m, lang).catch(() => []);
+      const body = JSON.stringify(list);
+      if (list.length) ctx.waitUntil(caches.default.put(key, new Response(body, { headers: { 'content-type': 'application/json', 'Cache-Control': 'max-age=21600' } })));
+      return new Response(body, { headers: { ...h, 'content-type': 'application/json' } });
+    }
     // 好樂迪 KTV 的點播排行（m=top）和新進歌曲（m=new），快取 6 小時
     if (u.pathname === '/chart' && h['Access-Control-Allow-Origin']) {
       const m = u.searchParams.get('m') === 'new' ? 'new' : 'top';
