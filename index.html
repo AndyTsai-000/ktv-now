@@ -84,6 +84,15 @@ header .sp{flex:1}
 #remote .list{margin:0 16px 16px}
 .name{width:90px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
 
+/* 去人聲小視窗 */
+#vr{max-width:420px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#vr .big{font-size:20px;padding:14px}
+#vr ol{margin:0;padding-left:20px;color:var(--dim);font-size:14px}
+#vr .st{padding:10px 12px;border-radius:10px;background:var(--panel);font-size:14px}
+#vr .meter{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}
+#vr .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--pink));transition:width .2s}
+#bVr.on{background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff}
+
 @media (max-width:900px){
   #app{height:auto;min-height:100%}
   #tv{display:block}
@@ -112,6 +121,8 @@ const API='https://ktv-search.multi-share-api.workers.dev';
 const MQ_URL='wss://broker.emqx.io:8084/mqtt',TOPIC='ktv-now-tw/';
 const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'').slice(0,6);
 const IS_REMOTE=JOIN.length===6;
+const IS_VR=new URLSearchParams(location.search).get('vr')==='1';
+const CAN_VR=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 const HOT=['周杰倫','五月天','告五人','蔡依林','田馥甄','伍佰','張學友','鄧紫棋','台語經典','民歌','生日快樂歌','對唱情歌'];
 
 const $=s=>document.querySelector(s);
@@ -246,7 +257,7 @@ function startTV(){
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
       '<button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
-      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button></div></div></div>'+
+      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button>'+(CAN_VR?' <button id="bVr" title="把歌手的聲音變小（電腦版 Chrome／Edge）">🎤 去人聲</button>':'')+'</div></div></div>'+
     '<div id="side">'+searchHTML()+
       '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
   if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
@@ -326,6 +337,21 @@ function startTV(){
   $('#bReplay').onclick=()=>handle({t:'replay'});
   $('#bSkip').onclick=()=>handle({t:'skip'});
   $('#exitFs').onclick=()=>{ if(document.fullscreenElement) document.exitFullscreen(); };
+  // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
+  if(CAN_VR){
+    const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false;
+    const vrBtn=()=>{ const b=$('#bVr'); b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關'):'🎤 去人聲'; };
+    bc.onmessage=e=>{ const m=e.data||{};
+      if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn(); if(m.live&&!was) toast('去人聲已啟動'); if(!m.live&&was) toast('去人聲已關閉，恢復原音'); }
+      else if(m.t==='mono') toast('這首是單聲道，人聲消不掉，先放原音'); };
+    $('#bVr').onclick=()=>{
+      if(vrLive){ bc.postMessage({t:'toggle'}); return; }
+      if(vrWin&&!vrWin.closed){ vrWin.focus(); return; }
+      vrWin=window.open(location.pathname+'?vr=1','ktv-vr','width=440,height=560');
+      if(!vrWin) alert('小視窗被瀏覽器擋住了，請允許這個網站開啟彈出式視窗後再按一次');
+    };
+    bc.postMessage({t:'ask'});
+  }
   $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen) st.requestFullscreen().catch(()=>{}); else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
   changed();
   if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
@@ -362,7 +388,76 @@ function startRemote(){
   window.__ktv={S:()=>S,mq};
 }
 
-if(IS_REMOTE) startRemote(); else startTV();
+// ---------- 去人聲小視窗 ----------
+// 原理跟 KTV 機台的消音一樣：人聲多半在左右聲道正中間，左減右就把它扣掉；
+// 扣掉時低音也會一起不見，所以把中間聲道 150Hz 以下的低音補回來
+function startVR(){
+  document.title='去人聲 - 隨時唱 KTV';
+  const bc=new BroadcastChannel('ktv-vr');
+  let ctx=null,stream=null,wet=null,dry=null,on=true,mono=false,timer=0;
+  $('#app').innerHTML='<header><span class="logo">🎤 去人聲</span></header><div id="vr">'+
+    '<div id="vrIntro"><ol><li>按下面的「開始」</li><li>在跳出的視窗選「<b>分頁</b>」→ 點「<b>隨時唱 KTV</b>」</li><li>確認有勾「<b>同時分享分頁音訊</b>」→ 按「<b>分享</b>」</li></ol></div>'+
+    '<button class="main big" id="vrGo">開始</button>'+
+    '<div class="st" id="vrSt">還沒開始</div>'+
+    '<div class="small">音量</div><div class="meter"><i id="vrM"></i></div>'+
+    '<button class="big" id="vrTog" disabled>去人聲：開</button>'+
+    '<div class="small">這個視窗要一直開著（可以縮小），關掉就恢復原音。人聲會變小但不會完全消失；本來就是伴唱版的歌建議關掉。</div></div>';
+  const say=()=>bc.postMessage({t:'state',live:!!stream,on});
+  function mix(){ // 依開關與是否單聲道決定播哪一路
+    if(!ctx) return; const useWet=on&&!mono,t=ctx.currentTime;
+    wet.gain.setTargetAtTime(useWet?1:0,t,0.05); dry.gain.setTargetAtTime(useWet?0:1,t,0.05);
+    $('#vrTog').textContent='去人聲：'+(on?'開':'關');
+    $('#vrSt').textContent=!stream?'還沒開始':mono&&on?'這首是單聲道，人聲消不掉，暫時放原音':on?'✅ 去人聲中':'原音播放中（去人聲關閉）';
+    say();
+  }
+  function stop(){
+    clearInterval(timer); if(stream) stream.getTracks().forEach(t=>t.stop()); stream=null;
+    if(ctx){ ctx.close(); ctx=null; }
+    $('#vrGo').disabled=false; $('#vrGo').textContent='開始'; $('#vrTog').disabled=true; $('#vrIntro').style.display=''; mix(); say();
+  }
+  $('#vrGo').onclick=async()=>{
+    try{
+      stream=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser'},
+        audio:{suppressLocalAudioPlayback:true,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2},
+        selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'exclude',preferCurrentTab:false});
+    }catch(e){ stream=null; $('#vrSt').textContent='沒有開始（取消了或瀏覽器不支援），可以再按一次「開始」'; return; }
+    stream.getVideoTracks().forEach(t=>t.stop());
+    const at=stream.getAudioTracks()[0];
+    if(!at){ stream.getTracks().forEach(t=>t.stop()); stream=null; $('#vrSt').textContent='沒有分享到聲音：請再按一次，記得勾「同時分享分頁音訊」'; return; }
+    at.onended=stop;
+    ctx=new AudioContext({latencyHint:'interactive'});
+    const g=v=>{ const n=ctx.createGain(); n.gain.value=v; return n; };
+    const src=ctx.createMediaStreamSource(new MediaStream([at])),sp=ctx.createChannelSplitter(2);
+    src.connect(sp);
+    const side=g(1),mid=g(1); side.channelCount=1; side.channelCountMode='explicit'; mid.channelCount=1; mid.channelCountMode='explicit';
+    const lP=g(1),rN=g(-1),lH=g(0.5),rH=g(0.5);
+    sp.connect(lP,0); sp.connect(rN,1); lP.connect(side); rN.connect(side);
+    sp.connect(lH,0); sp.connect(rH,1); lH.connect(mid); rH.connect(mid);
+    const lp1=ctx.createBiquadFilter(),lp2=ctx.createBiquadFilter(); lp1.type=lp2.type='lowpass'; lp1.frequency.value=lp2.frequency.value=150;
+    mid.connect(lp1); lp1.connect(lp2);
+    wet=g(0); dry=g(1); const bass=g(1.5); side.connect(wet); lp2.connect(bass); bass.connect(wet); src.connect(dry);
+    wet.connect(ctx.destination); dry.connect(ctx.destination);
+    // 量中間（人聲）和兩側的音量：兩側幾乎沒聲音就是單聲道，消不掉
+    const aS=ctx.createAnalyser(),aM=ctx.createAnalyser(); aS.fftSize=aM.fftSize=2048; side.connect(aS); mid.connect(aM);
+    const bS=new Float32Array(2048),bM=new Float32Array(2048),rms=(a,b)=>{ a.getFloatTimeDomainData(b); let x=0; for(const v of b) x+=v*v; return Math.sqrt(x/b.length); };
+    let quiet=0,loud=0;
+    timer=setInterval(()=>{
+      const sv=rms(aS,bS),mv=rms(aM,bM);
+      $('#vrM').style.width=Math.min(100,mv*300)+'%';
+      if(mv<0.01) return; // 沒聲音（換歌、廣告空檔）時不判斷
+      if(sv/mv<0.04){ loud=0; if(++quiet===6&&!mono){ mono=true; mix(); if(on) bc.postMessage({t:'mono'}); } }
+      else { quiet=0; if(++loud===3&&mono){ mono=false; mix(); } }
+    },250);
+    $('#vrGo').disabled=true; $('#vrGo').textContent='進行中'; $('#vrTog').disabled=false; $('#vrIntro').style.display='none';
+    mix();
+  };
+  $('#vrTog').onclick=()=>{ on=!on; mix(); };
+  bc.onmessage=e=>{ const m=e.data||{}; if(m.t==='toggle'&&stream){ on=!on; mix(); } else if(m.t==='ask') say(); };
+  addEventListener('pagehide',()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; say(); } });
+  window.__vr={mix,get on(){return on;},get mono(){return mono;}};
+}
+
+if(IS_VR) startVR(); else if(IS_REMOTE) startRemote(); else startTV();
 </script>
 </body>
 </html>
