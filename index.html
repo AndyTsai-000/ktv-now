@@ -164,8 +164,8 @@ function Mq(url,onReady,onMsg,onState){
 
 // ---------- 共用：搜尋與清單 ----------
 let results=null,hidden=0,tab='search',searching=false;
-// 「只找 KTV 伴唱版」：標題要有伴唱相關的字，有人聲的導唱版不要
-const KARAOKE=/ktv|伴唱|伴奏|karaoke|卡拉\s*ok|消音|去人聲|無人聲|純音樂|instrumental|off\s*vocal|backing\s*track/i;
+// 「只找 KTV 伴唱版」：標題要寫明伴唱／伴奏（只寫 KTV 的多半是有原唱的 KTV 影片），有人聲的導唱版不要
+const KARAOKE=/伴唱|伴奏|karaoke|卡拉\s*ok|消音|去人聲|無人聲|純音樂|instrumental|off\s*vocal|backing\s*track/i;
 const NOT_KARAOKE=/教學|tutorial|reaction|cover by|ai voice|翻唱|ktv\s*原唱|[(（【]原唱[)）】]|原唱版/i;
 // 「導唱」是有人聲帶唱的版本，除非標題也寫了伴奏（像「男F調~伴奏~導唱」那種分調伴奏）
 const isKaraoke=v=>KARAOKE.test(v.title)&&!NOT_KARAOKE.test(v.title)&&(!/導唱/.test(v.title)||/伴奏/.test(v.title));
@@ -204,9 +204,9 @@ async function doSearch(text){
     catch(e){ results=[song({id})]; }
     renderList(); return;
   }
-  // 勾選伴唱版時同時找「歌名 KTV」和「歌名 伴奏」，合併後只留標題看得出是伴唱的
+  // 勾選伴唱版時同時找「歌名 伴奏」和「歌名 KTV 伴唱」，合併後只留標題看得出是伴唱的
   const kOnly=$('#kOnly').checked,has=/ktv|伴唱|伴奏|karaoke|卡拉/i.test(text);
-  const qs=kOnly&&!has?[text+' KTV',text+' 伴奏']:[text];
+  const qs=kOnly&&!has?[text+' 伴奏',text+' KTV 伴唱']:[text];
   searching=true; results=null; hidden=0; renderList();
   const got=await Promise.all(qs.map(q=>fetch(API+'/search?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>null)));
   if(got.every(j=>!Array.isArray(j))) toast('搜尋失敗，請確認網路後再試一次');
@@ -216,9 +216,10 @@ async function doSearch(text){
   searching=false; renderList();
 }
 const hist=()=>UI.hist?UI.hist():load('ktv.hist',[]);
+let VR_IDS=new Set(load('ktv.vrSongs',[])); // 開過去人聲的歌（影片代號）
 function rowHTML(s,i,btns,num){
   return '<div class="it">'+(num?'<span class="n">'+num+'</span>':'')+'<img loading="lazy" src="'+thumb(esc(s.id))+'" alt="">'+
-    '<div class="tx"><div class="t" title="'+esc(s.title)+'">'+esc(s.title)+'</div><div class="s">'+esc([s.ch,s.len,s.by?'由 '+s.by+' 點':''].filter(Boolean).join('・'))+'</div></div>'+btns+'</div>';
+    '<div class="tx"><div class="t" title="'+esc(s.title)+'">'+esc(s.title)+'</div><div class="s">'+esc([VR_IDS.has(s.id)?'🎤 去人聲':'',s.ch,s.len,s.by?'由 '+s.by+' 點':''].filter(Boolean).join('・'))+'</div></div>'+btns+'</div>';
 }
 function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
@@ -301,10 +302,11 @@ function startTV(){
     S.now=S.q.shift()||null; S.paused=false;
     if(S.now){
       const H=hist().filter(h=>h.id!==S.now.id); H.unshift(song(S.now)); save('ktv.hist',H.slice(0,60));
-      play(S.now);
+      play(S.now); vrSync(true);
     } else if(ready) player.stopVideo();
     changed();
   }
+  let vrSync=()=>{},vrRemember=()=>{};
   function handle(c){
     if(!c||!c.t) return;
     if(c.t==='add'&&c.s&&/^[A-Za-z0-9_-]{11}$/.test(c.s.id)){
@@ -321,7 +323,7 @@ function startTV(){
     changed();
   }
   let mq=null;
-  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30)}); }
+  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300)}); }
   function changed(){
     save('ktv.state',{now:S.now,q:S.q});
     $('#idle').style.display=S.now?'none':'flex';
@@ -341,11 +343,19 @@ function startTV(){
   if(CAN_VR){
     const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false;
     const vrBtn=()=>{ const b=$('#bVr'); b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關'):'🎤 去人聲'; };
+    // 使用者開／關去人聲時記在正在唱的這首
+    vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
+    // 依記住的設定開或關（換歌時呼叫）
+    vrSync=say=>{ if(!vrLive||!S.now) return; const on=VR_IDS.has(S.now.id); if(on!==vrOn){ bc.postMessage({t:'set',on}); if(say) toast(on?'🎤 這首記得要去人聲，已自動開啟':'這首播原音（去人聲關閉）'); } };
     bc.onmessage=e=>{ const m=e.data||{};
-      if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn(); if(m.live&&!was) toast('去人聲已啟動'); if(!m.live&&was) toast('去人聲已關閉，恢復原音'); }
+      if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn();
+        if(m.live&&m.fresh){ toast('去人聲已啟動'); vrRemember(m.on); } // 剛按「開始」＝這首要去人聲
+        else if(m.live&&!was) vrSync(false);                        // 電視頁重新整理後跟小視窗對齊
+        if(!m.live&&was) toast('去人聲已關閉，恢復原音'); }
+      else if(m.t==='user') vrRemember(m.on);
       else if(m.t==='mono') toast('這首是單聲道，人聲消不掉，先放原音'); };
     $('#bVr').onclick=()=>{
-      if(vrLive){ bc.postMessage({t:'toggle'}); return; }
+      if(vrLive){ const on=!vrOn; bc.postMessage({t:'set',on}); vrRemember(on); return; }
       if(vrWin&&!vrWin.closed){ vrWin.focus(); return; }
       vrWin=window.open(location.pathname+'?vr=1','ktv-vr','width=440,height=560');
       if(!vrWin) alert('小視窗被瀏覽器擋住了，請允許這個網站開啟彈出式視窗後再按一次');
@@ -382,7 +392,7 @@ function startRemote(){
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
     o=>{ if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
-      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[]}; draw(); },
+      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   draw(); $('#nowT').textContent='連線中…';
   window.__ktv={S:()=>S,mq};
@@ -402,13 +412,13 @@ function startVR(){
     '<div class="small">音量</div><div class="meter"><i id="vrM"></i></div>'+
     '<button class="big" id="vrTog" disabled>去人聲：開</button>'+
     '<div class="small">這個視窗要一直開著（可以縮小），關掉就恢復原音。人聲會變小但不會完全消失；本來就是伴唱版的歌建議關掉。</div></div>';
-  const say=()=>bc.postMessage({t:'state',live:!!stream,on});
-  function mix(){ // 依開關與是否單聲道決定播哪一路
+  const say=fresh=>bc.postMessage({t:'state',live:!!stream,on,fresh:!!fresh});
+  function mix(fresh){ // 依開關與是否單聲道決定播哪一路；fresh＝剛按開始
     if(!ctx) return; const useWet=on&&!mono,t=ctx.currentTime;
     wet.gain.setTargetAtTime(useWet?1:0,t,0.05); dry.gain.setTargetAtTime(useWet?0:1,t,0.05);
     $('#vrTog').textContent='去人聲：'+(on?'開':'關');
     $('#vrSt').textContent=!stream?'還沒開始':mono&&on?'這首是單聲道，人聲消不掉，暫時放原音':on?'✅ 去人聲中':'原音播放中（去人聲關閉）';
-    say();
+    say(fresh);
   }
   function stop(){
     clearInterval(timer); if(stream) stream.getTracks().forEach(t=>t.stop()); stream=null;
@@ -449,10 +459,10 @@ function startVR(){
       else { quiet=0; if(++loud===3&&mono){ mono=false; mix(); } }
     },250);
     $('#vrGo').disabled=true; $('#vrGo').textContent='進行中'; $('#vrTog').disabled=false; $('#vrIntro').style.display='none';
-    mix();
+    mix(true);
   };
-  $('#vrTog').onclick=()=>{ on=!on; mix(); };
-  bc.onmessage=e=>{ const m=e.data||{}; if(m.t==='toggle'&&stream){ on=!on; mix(); } else if(m.t==='ask') say(); };
+  $('#vrTog').onclick=()=>{ on=!on; mix(); bc.postMessage({t:'user',on}); };
+  bc.onmessage=e=>{ const m=e.data||{}; if(m.t==='set'&&stream){ on=!!m.on; mix(); } else if(m.t==='ask') say(); };
   addEventListener('pagehide',()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; say(); } });
   window.__vr={mix,get on(){return on;},get mono(){return mono;}};
 }
