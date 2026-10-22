@@ -60,7 +60,7 @@ header .sp{flex:1}
 .it:hover{background:rgba(255,255,255,.05)}
 .it img{width:72px;height:40px;object-fit:cover;border-radius:6px;flex:none;background:#000}
 .it .tx{flex:1;min-width:0}
-.it .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .t{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35;word-break:break-all}
 .it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .it button{padding:6px 10px;font-size:13px;flex:none}
 .it .n{width:22px;text-align:center;color:var(--gold);font-weight:700;flex:none}
@@ -152,7 +152,12 @@ function Mq(url,onReady,onMsg,onState){
 }
 
 // ---------- 共用：搜尋與清單 ----------
-let results=null,tab='search',searching=false;
+let results=null,hidden=0,tab='search',searching=false;
+// 「只找 KTV 伴唱版」：標題要有伴唱相關的字，有人聲的導唱版不要
+const KARAOKE=/ktv|伴唱|伴奏|karaoke|卡拉\s*ok|消音|去人聲|無人聲|純音樂|instrumental|off\s*vocal|backing\s*track/i;
+const NOT_KARAOKE=/教學|tutorial|reaction|cover by|ai voice|翻唱|ktv\s*原唱|[(（【]原唱[)）】]|原唱版/i;
+// 「導唱」是有人聲帶唱的版本，除非標題也寫了伴奏（像「男F調~伴奏~導唱」那種分調伴奏）
+const isKaraoke=v=>KARAOKE.test(v.title)&&!NOT_KARAOKE.test(v.title)&&(!/導唱/.test(v.title)||/伴奏/.test(v.title));
 const UI={};   // 各模式提供 act(cmd)、state()
 
 function searchHTML(){
@@ -165,7 +170,7 @@ function bindSearch(){
   const go=()=>doSearch($('#q').value);
   $('#go').onclick=go;
   $('#q').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); $('#q').blur(); } };
-  $('#kOnly').onchange=e=>save('ktv.kOnly',e.target.checked);
+  $('#kOnly').onchange=e=>{ save('ktv.kOnly',e.target.checked); if(results&&$('#q').value.trim()) doSearch($('#q').value); };
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; renderList(); });
   $('#list').onclick=e=>{
     const b=e.target.closest('button'); if(!b) return;
@@ -188,13 +193,15 @@ async function doSearch(text){
     catch(e){ results=[song({id})]; }
     renderList(); return;
   }
-  const kOnly=$('#kOnly').checked,q=kOnly&&!/ktv|伴唱|伴奏|karaoke|卡拉/i.test(text)?text+' KTV':text;
-  searching=true; results=null; renderList();
-  try{
-    const r=await fetch(API+'/search?q='+encodeURIComponent(q)); const j=await r.json();
-    results=Array.isArray(j)?j:[];
-    if(!Array.isArray(j)) toast('搜尋失敗，請再試一次');
-  }catch(e){ results=[]; toast('連不上搜尋服務，請確認網路'); }
+  // 勾選伴唱版時同時找「歌名 KTV」和「歌名 伴奏」，合併後只留標題看得出是伴唱的
+  const kOnly=$('#kOnly').checked,has=/ktv|伴唱|伴奏|karaoke|卡拉/i.test(text);
+  const qs=kOnly&&!has?[text+' KTV',text+' 伴奏']:[text];
+  searching=true; results=null; hidden=0; renderList();
+  const got=await Promise.all(qs.map(q=>fetch(API+'/search?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>null)));
+  if(got.every(j=>!Array.isArray(j))) toast('搜尋失敗，請確認網路後再試一次');
+  const seen=new Set(),all=[];
+  for(const j of got) if(Array.isArray(j)) for(const v of j) if(!seen.has(v.id)){ seen.add(v.id); all.push(v); }
+  results=kOnly?all.filter(isKaraoke):all; hidden=all.length-results.length;
   searching=false; renderList();
 }
 const hist=()=>UI.hist?UI.hist():load('ktv.hist',[]);
@@ -209,8 +216,9 @@ function renderList(){
   if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';
     else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(t=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
-    else if(!results.length) h='<div class="empty">找不到，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
-    else h=results.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('');
+    else if(!results.length) h='<div class="empty">找不到'+(hidden?'伴唱版':'')+'，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
+    else h=results.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('')+
+      (hidden?'<div class="empty small">已隱藏 '+hidden+' 首看起來不是伴唱版的影片，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
     h=(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
       (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
