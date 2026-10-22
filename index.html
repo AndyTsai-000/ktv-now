@@ -90,8 +90,11 @@ header .sp{flex:1}
 #fxBar button.hit,.fxGrid button.hit{background:var(--pink);color:#fff}
 .fxGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
 #fxLayer{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-.fxE{position:absolute;bottom:-50px;font-size:44px;animation:fxUp 2.6s ease-out forwards}
-@keyframes fxUp{0%{transform:translateY(0) scale(.6);opacity:0}12%{opacity:1}100%{transform:translateY(-80vh) scale(1.25) rotate(var(--r));opacity:0}}
+#fxLayer canvas{position:absolute;inset:0;width:100%;height:100%}
+.fxBanner{position:absolute;left:50%;top:42%;font-size:clamp(34px,7vw,96px);font-weight:900;color:#fff;white-space:nowrap;pointer-events:none;
+  text-shadow:0 0 14px var(--c1,#ff4fa3),0 0 36px var(--c2,#a855f7),0 5px 0 rgba(0,0,0,.6);animation:fxPop 1.7s ease-out forwards}
+@keyframes fxPop{0%{transform:translate(-50%,-50%) scale(.2) rotate(-10deg);opacity:0}14%{transform:translate(-50%,-50%) scale(1.18) rotate(3deg);opacity:1}
+  28%{transform:translate(-50%,-50%) scale(1) rotate(0)}78%{opacity:1}100%{transform:translate(-50%,-62%) scale(1.04);opacity:0}}
 
 /* 去人聲小視窗 */
 #vr{max-width:420px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px}
@@ -172,9 +175,8 @@ function Mq(url,onReady,onMsg,onState){
 }
 
 // ---------- KTV 特效音（全部用程式合成，沒有用別人的音檔）----------
-const FX=[['clap','👏','掌聲'],['cheer','🙌','歡呼'],['whistle','😗','口哨'],['drum','🥁','鼓聲'],['tada','🎺','登登登'],['popper','🎉','拉炮']];
-const FX_LEN={clap:3.2,cheer:3.2,whistle:1.7,drum:2.9,tada:2,popper:1.8};
-const FX_EMOJI={clap:['👏'],cheer:['🙌','🎉','🥳'],whistle:['😗','🎵'],drum:['🥁','✨'],tada:['🎺','✨','🌟'],popper:['🎉','🎊']};
+const FX=[['clap','👏','掌聲'],['cheer','🙌','歡呼'],['whistle','😗','口哨'],['tada','🎺','登登登'],['popper','🎉','拉炮']];
+const FX_LEN={clap:3.2,cheer:3.4,whistle:1.7,tada:2,popper:1.8};
 const fxNoise=(c,sec)=>{ const b=c.createBuffer(1,Math.ceil(c.sampleRate*sec),c.sampleRate),d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; return b; };
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const FX_DRAW={
@@ -193,24 +195,31 @@ const FX_DRAW={
       }
     }
   },
-  cheer(c,out){ // 一群人「喔～」：鋸齒波加母音共振，音高往上滑再落下，底下墊人群氣聲和掌聲
-    const vowels=[[700,1100],[400,800],[600,1000]];
-    for(let v=0;v<14;v++){
-      const o=c.createOscillator(); o.type='sawtooth'; const f0=rnd(180,500),t0=rnd(0,0.5),dur=rnd(1.6,2.6);
-      o.frequency.setValueAtTime(f0*0.85,t0); o.frequency.linearRampToValueAtTime(f0*1.25,t0+0.35); o.frequency.linearRampToValueAtTime(f0*0.9,t0+dur);
-      const vib=c.createOscillator(),vg=c.createGain(); vib.frequency.value=rnd(5,7); vg.gain.value=f0*0.03; vib.connect(vg); vg.connect(o.frequency);
-      const mix=c.createGain(),[f1,f2]=vowels[v%3];
-      for(const [ff,q,gg] of [[f1,6,1],[f2,8,0.6]]){ const bp=c.createBiquadFilter(),gn=c.createGain(); bp.type='bandpass'; bp.frequency.value=ff*rnd(0.9,1.1); bp.Q.value=q; gn.gain.value=gg; o.connect(bp); bp.connect(gn); gn.connect(mix); }
-      const env=c.createGain(); env.gain.setValueAtTime(0,t0); env.gain.linearRampToValueAtTime(0.12,t0+0.25); env.gain.setValueAtTime(0.12,t0+dur-0.6); env.gain.linearRampToValueAtTime(0,t0+dur);
+  cheer(c,out){ // 開心的歡呼：一群人「喔～呼！」第二聲往上衝、音比較高，夾幾聲口哨，底下大聲的掌聲
+    const vowels=[[800,1200],[700,1800],[400,2300],[650,1500]]; // 啊、欸、伊、喔（亮一點的母音）
+    for(let v=0;v<18;v++){
+      const f0=v%2?rnd(330,560):rnd(210,340),t0=rnd(0,0.35),t1=t0+rnd(1.3,2.3),mid=t0+rnd(0.28,0.4);
+      const o=c.createOscillator(); o.type='sawtooth';
+      o.frequency.setValueAtTime(f0,t0); o.frequency.linearRampToValueAtTime(f0*1.25,mid);          // 喔～
+      o.frequency.setValueAtTime(f0*1.2,mid+0.06); o.frequency.exponentialRampToValueAtTime(f0*1.75,mid+0.22); // 呼！往上衝
+      o.frequency.linearRampToValueAtTime(f0*1.6,t1-0.3); o.frequency.exponentialRampToValueAtTime(f0*1.15,t1);
+      const vib=c.createOscillator(),vg=c.createGain(); vib.frequency.value=rnd(5.5,7.5); vg.gain.value=f0*0.04; vib.connect(vg); vg.connect(o.frequency);
+      const mix=c.createGain(),[f1,f2]=vowels[v%4];
+      for(const [ff,q,gg] of [[f1,5,1],[f2,7,0.7],[3000,3,0.25]]){ const bp=c.createBiquadFilter(),gn=c.createGain(); bp.type='bandpass'; bp.frequency.value=ff*rnd(0.9,1.1); bp.Q.value=q; gn.gain.value=gg; o.connect(bp); bp.connect(gn); gn.connect(mix); }
+      const env=c.createGain(),a=0.11;
+      env.gain.setValueAtTime(0,t0); env.gain.linearRampToValueAtTime(a*0.7,t0+0.08); env.gain.setValueAtTime(a*0.7,mid-0.02); env.gain.linearRampToValueAtTime(a*0.2,mid+0.05); // 兩聲中間斷一下
+      env.gain.linearRampToValueAtTime(a,mid+0.12); env.gain.setValueAtTime(a,t1-0.45); env.gain.linearRampToValueAtTime(0,t1);
       const pan=c.createStereoPanner(); pan.pan.value=rnd(-0.9,0.9); mix.connect(env); env.connect(pan); pan.connect(out);
-      o.start(t0); o.stop(t0+dur); vib.start(t0); vib.stop(t0+dur);
+      o.start(t0); o.stop(t1); vib.start(t0); vib.stop(t1);
     }
-    const n=c.createBufferSource(),bp=c.createBiquadFilter(),g=c.createGain(); n.buffer=fxNoise(c,3.1); bp.type='bandpass'; bp.frequency.value=1200; bp.Q.value=0.6;
-    g.gain.setValueAtTime(0,0); g.gain.linearRampToValueAtTime(0.12,0.4); g.gain.linearRampToValueAtTime(0,3.1); n.connect(bp); bp.connect(g); g.connect(out); n.start(0);
-    const soft=c.createGain(); soft.gain.value=0.45; soft.connect(out); FX_DRAW.clap(c,soft);
+    for(let i=0;i<3;i++){ const w=c.createGain(),pan=c.createStereoPanner(); w.gain.value=0.35; pan.pan.value=rnd(-0.8,0.8); w.connect(pan); pan.connect(out); FX_DRAW.whistle(c,w,rnd(0.3,1.6),rnd(0.9,1.15)); }
+    const n=c.createBufferSource(),bp=c.createBiquadFilter(),g=c.createGain(); n.buffer=fxNoise(c,3.3); bp.type='bandpass'; bp.frequency.value=2000; bp.Q.value=0.5;
+    g.gain.setValueAtTime(0,0); g.gain.linearRampToValueAtTime(0.14,0.3); g.gain.linearRampToValueAtTime(0,3.3); n.connect(bp); bp.connect(g); g.connect(out); n.start(0);
+    const loud=c.createGain(); loud.gain.value=0.8; loud.connect(out); FX_DRAW.clap(c,loud);
   },
-  whistle(c,out){ // 「咻～咿～」狼哨：先往上滑，再上去又落下
-    for(const [t0,t1,a,b,d] of [[0,0.35,1200,2600],[0.5,1.25,1500,2900,1300]]){
+  whistle(c,out,at=0,k=1){ // 「咻～咿～」狼哨：先往上滑，再上去又落下
+    for(let [t0,t1,a,b,d] of [[0,0.35,1200,2600],[0.5,1.25,1500,2900,1300]]){
+      t0+=at; t1+=at; a*=k; b*=k; if(d) d*=k;
       const o=c.createOscillator(),g=c.createGain(); o.type='sine';
       o.frequency.setValueAtTime(a,t0); o.frequency.exponentialRampToValueAtTime(b,t0+(d?0.25:t1-t0)); if(d) o.frequency.exponentialRampToValueAtTime(d,t1);
       g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(0.35,t0+0.04); g.gain.setValueAtTime(0.35,t1-0.08); g.gain.linearRampToValueAtTime(0,t1);
@@ -219,18 +228,6 @@ const FX_DRAW={
       o.connect(g); n.connect(nf); nf.connect(ng); ng.connect(g); g.connect(out);
       o.start(t0); o.stop(t1); vib.start(t0); vib.stop(t1); n.start(t0);
     }
-  },
-  drum(c,out){ // 小鼓滾奏越來越大聲，最後大鼓加鈸「咚鏘！」
-    const nb=fxNoise(c,0.3); let t=0;
-    while(t<2){
-      const src=c.createBufferSource(),bp=c.createBiquadFilter(),g=c.createGain(); src.buffer=nb; bp.type='bandpass'; bp.frequency.value=2200; bp.Q.value=0.7;
-      g.gain.setValueAtTime(0.08+0.32*t/2,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
-      src.connect(bp); bp.connect(g); g.connect(out); src.start(t,rnd(0,0.2),0.08); t+=rnd(0.045,0.051);
-    }
-    const k=c.createOscillator(),kg=c.createGain(); k.frequency.setValueAtTime(120,2.05); k.frequency.exponentialRampToValueAtTime(45,2.35);
-    kg.gain.setValueAtTime(0.9,2.05); kg.gain.exponentialRampToValueAtTime(0.001,2.5); k.connect(kg); kg.connect(out); k.start(2.05); k.stop(2.55);
-    const cy=c.createBufferSource(),hp=c.createBiquadFilter(),cg=c.createGain(); cy.buffer=fxNoise(c,0.8); hp.type='highpass'; hp.frequency.value=5000;
-    cg.gain.setValueAtTime(0.5,2.05); cg.gain.exponentialRampToValueAtTime(0.001,2.8); cy.connect(hp); hp.connect(cg); cg.connect(out); cy.start(2.05);
   },
   tada(c,out){ // 「登、登、登～」小號：鋸齒波＋會打開的低通，最後一個和弦拉長
     const play=(t0,d,fs)=>fs.forEach((f,i)=>{
@@ -267,6 +264,79 @@ const fxBuffer=name=>fxCache[name]||(fxCache[name]=(async()=>{
 })());
 const fxWarm=()=>setTimeout(()=>FX.reduce((p,[k])=>p.then(()=>fxBuffer(k)),Promise.resolve()),1500);
 async function fxPlay(ctx,name){ const b=await fxBuffer(name),src=ctx.createBufferSource(),g=ctx.createGain(); src.buffer=b; g.gain.value=0.9; src.connect(g); g.connect(ctx.destination); src.start(); }
+// ---------- 特效畫面：彩帶、表情、星光畫在影片上的 canvas，標語用文字動畫 ----------
+const FX_COLORS=['#ff4fa3','#33e1ff','#ffd166','#a855f7','#4ade80','#ff8a3d'];
+function FxScene(layer){
+  let cv=null,cx=null,parts=[],raf=0,W=0,H=0,last=0;
+  const pick=a=>a[Math.floor(Math.random()*a.length)];
+  function fit(){
+    if(!cv){ cv=document.createElement('canvas'); layer.appendChild(cv); cx=cv.getContext('2d'); }
+    const r=layer.getBoundingClientRect(),d=Math.min(2,devicePixelRatio||1); W=r.width; H=r.height;
+    if(cv.width!==Math.round(W*d)||cv.height!==Math.round(H*d)){ cv.width=Math.round(W*d); cv.height=Math.round(H*d); }
+    cx.setTransform(d,0,0,d,0,0);
+  }
+  const add=p=>parts.push(Object.assign({x:0,y:0,vx:0,vy:0,g:0,drag:1,rot:0,vr:0,life:2,age:0,size:12,kind:'rect',color:'#fff',spin:rnd(4,10),wait:0},p));
+  function draw(p){
+    const t=p.age/p.life,fade=t>0.7?1-(t-0.7)/0.3:Math.min(1,p.age*8);
+    cx.save(); cx.globalAlpha=Math.max(0,fade); cx.translate(p.x,p.y); cx.rotate(p.rot);
+    if(p.kind==='rect'){ cx.scale(1,Math.cos(p.age*p.spin)); cx.fillStyle=p.color; cx.fillRect(-p.size/2,-p.size/4,p.size,p.size/2); }
+    else if(p.kind==='ribbon'){ cx.strokeStyle=p.color; cx.lineWidth=3; cx.beginPath(); for(let i=0;i<=12;i++){ const yy=i*p.size/12; cx.lineTo(Math.sin(i*0.9+p.age*12)*5,yy); } cx.stroke(); }
+    else if(p.kind==='emoji'){ const sz=p.grow?p.size*(1+p.grow*Math.sin(Math.min(1,t*1.4)*Math.PI)):p.size; cx.font=sz+'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; cx.textAlign='center'; cx.textBaseline='middle'; cx.fillText(p.text,0,0); }
+    else if(p.kind==='spark'){ cx.fillStyle=p.color; cx.shadowColor=p.color; cx.shadowBlur=10; cx.beginPath(); const r=p.size*(1-t*0.5);
+      for(let i=0;i<8;i++){ const a=i*Math.PI/4,rr=i%2?r*0.35:r; cx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr); } cx.closePath(); cx.fill(); }
+    else if(p.kind==='ring'){ cx.strokeStyle=p.color; cx.lineWidth=6*(1-t)+1; cx.beginPath(); cx.arc(0,0,p.size*(0.2+t*1.2),0,Math.PI*2); cx.stroke(); }
+    else if(p.kind==='rays'){ const n=16,R=Math.max(W,H); for(let i=0;i<n;i++){ cx.rotate(Math.PI*2/n); cx.fillStyle=i%2?'rgba(255,209,102,.26)':'rgba(255,255,255,.12)'; cx.beginPath(); cx.moveTo(0,0); cx.lineTo(R,-R*0.12); cx.lineTo(R,R*0.12); cx.fill(); } }
+    cx.restore();
+  }
+  function frame(ts){ // 用實際經過的時間算，電腦慢的時候特效長度也不會被拉長
+    const dt=last?Math.min(0.05,(ts-last)/1000):1/60; last=ts; cx.clearRect(0,0,W,H);
+    parts=parts.filter(p=>{
+      if(p.wait>0){ p.wait-=dt; return true; }
+      p.age+=dt; if(p.age>=p.life) return false;
+      if(p.path) p.path(p); else { p.vx*=p.drag; p.vy=p.vy*p.drag+p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; }
+      p.rot+=p.vr*dt; draw(p); return true;
+    });
+    raf=parts.length?requestAnimationFrame(frame):(last=0);
+  }
+  function banner(text,c1,c2){ const b=document.createElement('div'); b.className='fxBanner'; b.textContent=text; if(c1) b.style.setProperty('--c1',c1); if(c2) b.style.setProperty('--c2',c2); layer.appendChild(b); setTimeout(()=>b.remove(),1800); }
+  const confetti=(x,y,ang,spread,speed,n,u)=>{ for(let i=0;i<n;i++){ const a=ang+rnd(-spread,spread),v=rnd(0.55,1)*speed*u;
+    add({kind:Math.random()<0.12?'ribbon':'rect',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,g:700*u,drag:0.975,rot:rnd(0,6),vr:rnd(-8,8),life:rnd(2.2,3.2),size:rnd(11,18)*Math.max(0.8,u),color:pick(FX_COLORS)}); } };
+  const SHOW={
+    clap(u){ // 中間的大手跟著拍子跳三下＋光圈，兩個下角噴出小手和星光
+      for(let i=0;i<3;i++){ add({kind:'emoji',text:'👏',x:W/2,y:H*0.66,size:90*u,grow:0.35,life:0.55,wait:i*0.36}); add({kind:'ring',x:W/2,y:H*0.66,size:160*u,color:'#ffd166',life:0.6,wait:i*0.36}); }
+      for(const side of [0,1]) for(let i=0;i<14;i++){ const dir=side?-1:1;
+        add({kind:i%3?'spark':'emoji',text:'👏',color:pick(['#ffd166','#fff','#ff8a3d']),x:side?W:0,y:H,vx:dir*rnd(180,480)*u,vy:-rnd(600,900)*u,g:900*u,drag:0.99,size:i%3?rnd(6,10)*u:rnd(30,44)*u,vr:rnd(-3,3),life:rnd(1.6,2.2),wait:rnd(0,0.9)}); }
+      banner('掌聲鼓勵！','#ffd166','#ff8a3d');
+    },
+    cheer(u){ // 下方中間噴彩帶，舉手和派對臉跟著飛，大標語
+      confetti(W/2,H,-Math.PI/2,0.6,1300,160,u);
+      for(let i=0;i<16;i++) add({kind:'emoji',text:pick(['🙌','🥳','🎉','🙌']),x:W/2+rnd(-W*0.2,W*0.2),y:H,vx:rnd(-350,350)*u,vy:-rnd(700,1050)*u,g:800*u,drag:0.985,size:rnd(34,56)*u,vr:rnd(-2,2),life:rnd(2,2.8),wait:rnd(0,0.4)});
+      banner(pick(['太棒了！','安可！','好聽！','讚啦！']),'#ff4fa3','#33e1ff');
+    },
+    whistle(u){ // 音符沿著波浪從左飄到右，左邊大大的吹口哨臉
+      add({kind:'emoji',text:'😗',x:W*0.12,y:H*0.5,size:110*u,grow:0.2,life:1.6,vr:0.4});
+      for(let i=0;i<18;i++){ const y0=H*rnd(0.25,0.7),ph=rnd(0,6),sp=rnd(280,420)*u;
+        add({kind:'emoji',text:pick(['🎵','🎶','♪']),color:'#fff',size:rnd(28,46)*u,life:2.4,wait:i*0.06,path:p=>{ p.x=W*0.16+p.age*sp; p.y=y0+Math.sin(p.age*5+ph)*40*u; }}); }
+      banner('咻～♪','#33e1ff','#4ade80');
+    },
+    tada(u){ // 中間轉動的金色光芒，星星往外炸開
+      add({kind:'rays',x:W/2,y:H*0.6,vr:0.8,life:1.9});
+      for(let i=0;i<34;i++){ const a=rnd(0,Math.PI*2),v=rnd(250,650)*u;
+        add({kind:i%2?'spark':'emoji',text:pick(['✨','🌟','⭐']),color:pick(['#ffd166','#fff']),x:W/2,y:H*0.6,vx:Math.cos(a)*v,vy:Math.sin(a)*v,drag:0.955,g:120*u,size:i%2?rnd(7,12)*u:rnd(30,48)*u,vr:rnd(-4,4),life:rnd(1.4,2),wait:0.3+rnd(0,0.15)}); }
+      add({kind:'emoji',text:'🎺',x:W/2,y:H*0.66,size:100*u,grow:0.3,life:1.2});
+      banner('登登登～！','#ffd166','#ff8a3d');
+    },
+    popper(u){ // 兩個下角各「砰」一發彩帶，往上衝再慢慢飄下來
+      for(const side of [0,1]){ const x=side?W*0.95:W*0.05,ang=side?-Math.PI*0.62:-Math.PI*0.38;
+        add({kind:'emoji',text:'🎉',x,y:H*0.9,size:70*u,grow:0.4,life:0.8,rot:side?-0.6:0.6});
+        confetti(x,H*0.9,ang,0.35,1500,110,u); }
+      banner('恭喜！🎉','#a855f7','#ff4fa3');
+    },
+  };
+  return { play(name){ if(!SHOW[name]) return; fit(); SHOW[name](Math.max(0.6,Math.min(1.8,H/600))); if(!raf) raf=requestAnimationFrame(frame); },
+           get count(){ return parts.length; } };
+}
+
 const fxButtons=cls=>FX.map(([k,e,t],i)=>'<button data-fx="'+k+'" title="快捷鍵 '+(i+1)+'">'+e+' '+t+'</button>').join('');
 function fxFlash(b){ b.classList.add('hit'); setTimeout(()=>b.classList.remove('hit'),300); }
 
@@ -453,13 +523,10 @@ function startTV(){
   $('#exitFs').onclick=()=>{ if(document.fullscreenElement) document.exitFullscreen(); };
   let vrIsLive=()=>false,vrFx=null;
   // 特效：開著去人聲時交給小視窗播（不然特效也會被去人聲削掉），否則這頁自己播
-  let fxCtx=null,fxLast=0;
+  let fxCtx=null,fxLast=0; const fxScene=FxScene($('#fxLayer'));
   function fx(name,by){
     if(!FX_LEN[name]) return; const now=performance.now(); if(now-fxLast<300) return; fxLast=now;
-    const em=FX_EMOJI[name],layer=$('#fxLayer');
-    for(let i=0;i<14;i++){ const e=document.createElement('span'); e.className='fxE'; e.textContent=em[i%em.length];
-      e.style.left=rnd(3,92)+'%'; e.style.animationDelay=rnd(0,0.6)+'s'; e.style.fontSize=rnd(32,60)+'px'; e.style.setProperty('--r',rnd(-40,40)+'deg');
-      layer.appendChild(e); setTimeout(()=>e.remove(),3400); }
+    fxScene.play(name);
     if(by) toast(by+' '+FX.find(x=>x[0]===name)[1]+' '+FX.find(x=>x[0]===name)[2]);
     if(vrIsLive()&&vrFx){ vrFx(name); return; }
     try{ if(!fxCtx) fxCtx=new AudioContext(); if(fxCtx.state==='suspended') fxCtx.resume(); fxPlay(fxCtx,name); }catch(e){}
@@ -494,7 +561,7 @@ function startTV(){
     if(vrIsLive()) setTimeout(()=>toast('開著去人聲時，再按鍵盤 F11 才是全螢幕（離開也按 F11）',6000),300); } else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
   changed();
   if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
-  window.__ktv={S,handle,room,player:()=>player};
+  window.__ktv={S,handle,room,player:()=>player,fx,fxScene};
 }
 
 // ---------- 手機點歌模式 ----------
