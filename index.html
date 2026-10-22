@@ -424,20 +424,43 @@ const mediaLen=file=>new Promise(res=>{
   v.onerror=()=>end(null); setTimeout(()=>end(''),8000); v.src=u;
 });
 
-// 升降 Key：兩個讀取頭在約 60ms 的延遲裡來回滑動（讀得比寫快，音就變高），用三角形交叉淡入淡出接起來
+// 升降 Key（跟 KTV 機台常用的 SoundTouch 同一種做法）：
+// 先把聲音切成約 40ms 一段重新排（升 Key 就拉長、降 Key 就縮短），每段接上去時在附近找「波形最像」的位置接，才不會嗡嗡、忽大忽小；
+// 再用 ratio 倍速播放，長度變回原本、音高就變了
 const PITCH_WORKLET=`class KtvPitch extends AudioWorkletProcessor{
   static get parameterDescriptors(){ return [{name:'ratio',defaultValue:1,minValue:0.5,maxValue:2,automationRate:'k-rate'}]; }
-  constructor(){ super(); this.N=16384; this.b=[new Float32Array(this.N),new Float32Array(this.N)]; this.w=0; this.ph=0; this.W=Math.round(sampleRate*0.06); }
-  read(c,d){ const N=this.N; let p=this.w-1-d; while(p<0) p+=N; const i=Math.floor(p),f=p-i,a=this.b[c][i%N],b=this.b[c][(i+1)%N]; return a+(b-a)*f; }
+  constructor(){ super(); const sr=sampleRate; this.S=Math.round(sr*0.04); this.O=Math.round(sr*0.008); this.K=Math.round(sr*0.012); this.reset(); }
+  reset(){ const M=1<<15; this.I=[new Float32Array(M),new Float32Array(M)]; this.T=[new Float32Array(M),new Float32Array(M)];
+    this.tail=[new Float32Array(this.O),new Float32Array(this.O)]; this.iLen=this.tLen=this.pos=this.rp=0; this.first=true; this.run=false; }
+  seek(lo,hi){ // 在 lo～hi 之間找開頭最像上一段結尾的位置（左右相加來比，左右用同一個接點，立體聲才不會散）
+    const I=this.I,tl=this.tail,O=this.O; let best=-Infinity,bs=lo;
+    const score=s=>{ let c=0,e=1e-9; for(let i=0;i<O;i+=2){ const m=I[0][s+i]+I[1][s+i]; c+=m*(tl[0][i]+tl[1][i]); e+=m*m; } return c/Math.sqrt(e); };
+    for(let s=lo;s<=hi;s+=4){ const v=score(s); if(v>best){ best=v; bs=s; } }
+    for(let s=Math.max(lo,bs-3),e=Math.min(hi,bs+3);s<=e;s++){ const v=score(s); if(v>best){ best=v; bs=s; } }
+    return bs; }
+  step(r){ // 接一段：開頭 O 跟上一段結尾交叉淡入、中間照抄、結尾 O 留給下一段
+    const S=this.S,O=this.O,K=this.K,p=Math.round(this.pos);
+    if(p+K+S>this.iLen||this.tLen+S>this.T[0].length) return false;
+    const st=this.first?p:this.seek(Math.max(0,p-K),p+K); this.first=false;
+    for(let c=0;c<2;c++){ const t=this.T[c],x=this.I[c],tl=this.tail[c]; let w=this.tLen;
+      for(let i=0;i<O;i++){ const g=i/O; t[w++]=tl[i]*(1-g)+x[st+i]*g; }
+      for(let i=O;i<S-O;i++) t[w++]=x[st+i];
+      for(let i=0;i<O;i++) tl[i]=x[st+S-O+i]; }
+    this.tLen+=S-O; this.pos+=(S-O)/r; return true; }
   process(ins,outs,params){
-    const inp=ins[0],out=outs[0],r=params.ratio[0],W=this.W,N=this.N,n=out[0].length;
-    for(let k=0;k<n;k++){
-      for(let c=0;c<2;c++){ const ch=inp&&inp.length?inp[Math.min(c,inp.length-1)]:null; this.b[c][this.w]=ch?ch[k]:0; }
-      this.w=(this.w+1)%N;
-      this.ph+=(1-r)/W; this.ph-=Math.floor(this.ph);
-      const p2=(this.ph+0.5)%1,g1=1-Math.abs(2*this.ph-1),g2=1-Math.abs(2*p2-1);
-      for(let c=0;c<out.length;c++){ const cc=Math.min(c,1); out[c][k]=g1*this.read(cc,1+this.ph*W)+g2*this.read(cc,1+p2*W); }
-    }
+    const inp=ins[0],out=outs[0],r=params.ratio[0],n=out[0].length,I=this.I,T=this.T;
+    if(this.iLen+n>I[0].length) this.reset();
+    for(let c=0;c<2;c++){ const ch=inp&&inp.length?inp[Math.min(c,inp.length-1)]:null,b=I[c]; for(let k=0;k<n;k++) b[this.iLen+k]=ch?ch[k]:0; }
+    this.iLen+=n;
+    while(this.tLen-this.rp<n*r+this.S*2&&this.step(r));
+    if(!this.run&&this.tLen-this.rp>=n*r+this.S) this.run=true;
+    for(let k=0;k<n;k++){ let L=0,R=0;
+      if(this.run){ const i=Math.floor(this.rp);
+        if(i+1<this.tLen){ const f=this.rp-i; L=T[0][i]+(T[0][i+1]-T[0][i])*f; R=T[1][i]+(T[1][i+1]-T[1][i])*f; this.rp+=r; } else this.run=false; }
+      out[0][k]=L; if(out[1]) out[1][k]=R; }
+    // 用過的丟掉
+    const ci=Math.round(this.pos)-this.K-8; if(ci>8192){ for(const b of I) b.copyWithin(0,ci,this.iLen); this.iLen-=ci; this.pos-=ci; }
+    const ct=Math.floor(this.rp)-1; if(ct>8192){ for(const b of T) b.copyWithin(0,ct,this.tLen); this.tLen-=ct; this.rp-=ct; }
     return true;
   }
 }
@@ -865,7 +888,7 @@ function startTV(){
     // 使用者開／關去人聲時記在正在唱的這首
     vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
     // 每首歌都先播原音（使用者指定），換歌時把去人聲關掉；🎤 只是標記「這首去過人聲」
-    vrSync=()=>{ if(vrLive&&(vrOn||ytKey)) bc.postMessage({t:'set',on:false,key:0}); ytKey=0; showKey(0); };
+    vrSync=()=>{ if(vrLive) bc.postMessage({t:'set',on:false,key:0}); ytKey=0; showKey(0); };
     bc.onmessage=e=>{ const m=e.data||{};
       if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn();
         if(S.now&&!isLocal(S.now)&&(m.fresh||!m.live)){ ytKey=m.live?(m.key|0):0; showKey(ytKey); } // 接上後以這頁為準（連按時小視窗回報的是舊的）
@@ -962,8 +985,11 @@ function startRemote(){
 // 原理跟 KTV 機台的消音一樣：人聲多半在左右聲道正中間，左減右就把它扣掉；
 // 扣掉時低音、鼓和鈸也會一起變小，所以中間聲道只扣人聲集中的頻段（約 180Hz～6kHz），其他補回來，再自動把音量拉回原音大小
 // 例外：有些 KTV 影片左右聲道分開（一邊伴唱、一邊原唱），左減右反而會把人聲挑出來，這種就只放伴唱那一邊
+// 「單聲道」「左右分開」是整首歌的性質，只在每首開頭有聲音的前 30／60 秒判斷，之後鎖定——
+// 不然唱到一半遇到左右差不多的段落、或某一邊樂器特別大聲，會被誤判而跑回原唱
+const VR_TUNE={mono:120,learn:240}; // 單位：0.25 秒
 function VocalRemover(ctx,src,onChange){
-  let on=false,mono=false,dual=null,dualLock=false,dualN=0,normN=0,quiet=0,loud=0,boost=1,eL=0,eR=0,eS=0,level=0,ratio=0;
+  let on=false,mono=false,dual=null,dualLock=false,dualN=0,normN=0,quiet=0,loud=0,boost=1,eL=0,eR=0,eS=0,level=0,ratio=0,heard=0;
   const tell=ev=>{ if(onChange) onChange(ev); };
   const g=v=>{ const n=ctx.createGain(); n.gain.value=v; return n; };
   const sp=ctx.createChannelSplitter(2); src.connect(sp);
@@ -994,23 +1020,24 @@ function VocalRemover(ctx,src,onChange){
     const orig=Math.sqrt(rms(aMh)**2+rms(aSh)**2/4),now=rms(aPh)/boost;
     if(orig>0.01&&now>0.0005){ boost+=(Math.min(4,Math.max(1,orig*0.7/now))-boost)*0.3; sideAmp.gain.setTargetAtTime(boost,ctx.currentTime,0.3); }
     if(mv<0.01) return; // 沒聲音（換歌、廣告空檔）時不判斷
-    if(sv/mv<0.04){ loud=0; if(++quiet===6&&!mono){ mono=true; apply(); tell('mono'); } }
+    heard++;
+    if(sv/mv<0.04){ loud=0; if(++quiet===6&&!mono&&heard<=VR_TUNE.mono){ mono=true; apply(); tell('mono'); } }
     else { quiet=0; if(++loud===3&&mono){ mono=false; apply(); tell('state'); } }
     // 左右分開的判斷：原唱那邊＝伴唱＋人聲，所以「兩邊能量差」幾乎等於「左減右的能量」；一般歌左右差不多大，差很小
     const k=0.15,l=rms(aL),r=rms(aR)*2; eL+=(l*l-eL)*k; eR+=(r*r-eR)*k; eS+=(sv*sv-eS)*k;
     ratio=eS>1e-6?Math.abs(eR-eL)/eS:0;
-    if(!dualLock){
+    if(!dualLock&&heard<=VR_TUNE.learn){
       if(ratio>0.85){ normN=0; if(++dualN===20){ const d=eR>eL?'L':'R'; if(d!==dual){ dual=d; pick(); tell('dual'); } } }
-      else if(ratio<0.3){ dualN=0; if(++normN===12&&dual){ dual=null; pick(); tell('state'); } }
+      else if(ratio<0.3&&sv/mv>0.1){ dualN=0; if(++normN===12&&dual){ dual=null; pick(); tell('state'); } }
     }
   },250);
   return {
-    out,nodes:{wet,dry,lim,procGate,pL,pR,sideAmp},
-    get on(){ return on; },get mono(){ return mono; },get dual(){ return dual; },get level(){ return level; },get boost(){ return boost; },get ratio(){ return ratio; },
+    out,nodes:{wet,dry,lim,procGate,pL,pR,sideAmp,out},
+    get on(){ return on; },get mono(){ return mono; },get dual(){ return dual; },get level(){ return level; },get boost(){ return boost; },get ratio(){ return ratio; },get heard(){ return heard; },
     setOn(v){ on=!!v; apply(); },
     flip(){ if(!dual) return; dual=dual==='L'?'R':'L'; dualLock=true; pick(); tell('state'); }, // 自動判斷猜錯時換另一邊
     normal(){ dual=null; dualLock=true; pick(); tell('state'); },                             // 或改回一般去人聲（這首不再自動判斷）
-    reset(){ dualLock=false; dual=null; dualN=normN=0; pick(); apply(); },                       // 換歌時重新判斷
+    reset(){ dualLock=false; dual=null; mono=false; dualN=normN=quiet=loud=heard=0; pick(); apply(); },                       // 換歌時重新判斷
     close(){ clearInterval(timer); },
   };
 }
