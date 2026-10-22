@@ -303,7 +303,7 @@ function startTV(){
     S.now=S.q.shift()||null; S.paused=false;
     if(S.now){
       const H=hist().filter(h=>h.id!==S.now.id); H.unshift(song(S.now)); save('ktv.hist',H.slice(0,60));
-      play(S.now); vrSync(true);
+      play(S.now); vrSync();
     } else if(ready) player.stopVideo();
     changed();
   }
@@ -345,15 +345,14 @@ function startTV(){
   // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
   if(CAN_VR){
     const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false; vrIsLive=()=>vrLive;
-    const vrBtn=()=>{ const b=$('#bVr'); b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關'):'🎤 去人聲'; };
+    const vrBtn=()=>{ const b=$('#bVr'); b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'):'🎤 去人聲'; };
     // 使用者開／關去人聲時記在正在唱的這首
     vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
-    // 依記住的設定開或關（換歌時呼叫）
-    vrSync=say=>{ if(!vrLive||!S.now) return; const on=VR_IDS.has(S.now.id); if(on!==vrOn){ bc.postMessage({t:'set',on}); if(say) toast(on?'🎤 這首記得要去人聲，已自動開啟':'這首播原音（去人聲關閉）'); } };
+    // 每首歌都先播原音（使用者指定），換歌時把去人聲關掉；🎤 只是標記「這首去過人聲」
+    vrSync=()=>{ if(vrLive&&vrOn) bc.postMessage({t:'set',on:false}); };
     bc.onmessage=e=>{ const m=e.data||{};
       if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn();
-        if(m.live&&m.fresh){ toast('去人聲已啟動'); vrRemember(m.on); } // 剛按「開始」＝這首要去人聲
-        else if(m.live&&!was) vrSync(false);                        // 電視頁重新整理後跟小視窗對齊
+        if(m.live&&m.fresh) toast('去人聲準備好了，要用時按「🎤 去人聲」');
         if(!m.live&&was) toast('去人聲已關閉，恢復原音'); }
       else if(m.t==='user') vrRemember(m.on);
       else if(m.t==='mono') toast('這首是單聲道，人聲消不掉，先放原音'); };
@@ -406,23 +405,26 @@ function startRemote(){
 // ---------- 去人聲小視窗 ----------
 // 原理跟 KTV 機台的消音一樣：人聲多半在左右聲道正中間，左減右就把它扣掉；
 // 扣掉時低音、鼓和鈸也會一起變小，所以中間聲道只扣人聲集中的頻段（約 180Hz～6kHz），其他補回來，再自動把音量拉回原音大小
+// 例外：有些 KTV 影片左右聲道分開（一邊伴唱、一邊原唱），左減右反而會把人聲挑出來，這種就只放伴唱那一邊
 function startVR(){
   document.title='去人聲 - 隨時唱 KTV';
   const bc=new BroadcastChannel('ktv-vr');
-  let ctx=null,stream=null,wet=null,dry=null,on=true,mono=false,timer=0;
+  let ctx=null,stream=null,wet=null,dry=null,on=false,mono=false,timer=0,dual=null,dualLock=false,dualN=0,normN=0,pick=()=>{};
   $('#app').innerHTML='<header><span class="logo">🎤 去人聲</span></header><div id="vr">'+
     '<div id="vrIntro"><ol><li>按下面的「開始」</li><li>在跳出的視窗選「<b>分頁</b>」→ 點「<b>隨時唱 KTV</b>」</li><li>確認有勾「<b>同時分享分頁音訊</b>」→ 按「<b>分享</b>」</li></ol></div>'+
     '<button class="main big" id="vrGo">開始</button>'+
     '<div class="st" id="vrSt">還沒開始</div>'+
     '<div class="small">音量</div><div class="meter"><i id="vrM"></i></div>'+
-    '<button class="big" id="vrTog" disabled>去人聲：開</button>'+
-    '<div class="small">這個視窗要一直開著（可以縮小），關掉就恢復原音。人聲會變小但不會完全消失；本來就是伴唱版的歌建議關掉。</div></div>';
+    '<button class="big" id="vrTog" disabled>去人聲：關</button>'+
+    '<div class="row" id="vrFix" style="display:none;display:none;gap:8px"><button id="vrFlip" style="flex:1">換另一邊</button><button id="vrNorm" style="flex:1">改回一般去人聲</button></div>'+
+    '<div class="small">這個視窗要一直開著（可以縮小），關掉就恢復原音。每首歌一開始都是原音，要去人聲再按上面的按鈕；人聲會變小但不一定完全消失。</div></div>';
   const say=fresh=>bc.postMessage({t:'state',live:!!stream,on,fresh:!!fresh});
   function mix(fresh){ // 依開關與是否單聲道決定播哪一路；fresh＝剛按開始
     if(!ctx) return; const useWet=on&&!mono,t=ctx.currentTime;
     wet.gain.setTargetAtTime(useWet?1:0,t,0.05); dry.gain.setTargetAtTime(useWet?0:1,t,0.05);
     $('#vrTog').textContent='去人聲：'+(on?'開':'關');
-    $('#vrSt').textContent=!stream?'還沒開始':mono&&on?'這首是單聲道，人聲消不掉，暫時放原音':on?'✅ 去人聲中':'原音播放中（去人聲關閉）';
+    $('#vrSt').textContent=!stream?'還沒開始':mono&&on?'這首是單聲道，人聲消不掉，暫時放原音':on&&dual?'✅ 這首是左右聲道分開的 KTV 影片，只放伴唱那一邊（'+(dual==='L'?'左':'右')+'）':on?'✅ 去人聲中':'原音播放中（要去人聲請按下面的按鈕）';
+    $('#vrFix').style.display=stream&&on&&dual?'flex':'none';
     say(fresh);
   }
   function stop(){
@@ -455,14 +457,17 @@ function startVR(){
     const sideAmp=g(1),lim=ctx.createDynamicsCompressor();
     side.connect(sideAmp); sideAmp.connect(proc); bass.connect(proc); treble.connect(proc);
     lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.003; lim.release.value=0.2;
-    wet=g(0); dry=g(1); proc.connect(lim); lim.connect(wet); src.connect(dry);
+    const procGate=g(1),pL=g(0),pR=g(0); proc.connect(procGate); procGate.connect(lim);
+    lP.connect(pL); rH.connect(pR); pL.connect(lim); pR.connect(lim); // rH 是右聲道的一半，選右邊時給 2 倍
+    pick=()=>{ const t=ctx.currentTime; procGate.gain.setTargetAtTime(dual?0:1,t,0.05); pL.gain.setTargetAtTime(dual==='L'?1:0,t,0.05); pR.gain.setTargetAtTime(dual==='R'?2:0,t,0.05); };
+    wet=g(0); dry=g(1); lim.connect(wet); src.connect(dry); window.__vrNodes={ctx,src,wet,dry,lim,procGate,pL,pR,sideAmp};
     wet.connect(ctx.destination); dry.connect(ctx.destination);
     // 量中間（人聲）和兩側的音量：兩側幾乎沒聲音就是單聲道，消不掉
     const an=node=>{ const a=ctx.createAnalyser(); a.fftSize=2048; node.connect(a); return a; };
     const above200=node=>{ const h=ctx.createBiquadFilter(); h.type='highpass'; h.frequency.value=200; node.connect(h); return h; };
-    const aS=an(side),aM=an(mid),aMh=an(above200(mid)),aSh=an(above200(side)),aPh=an(above200(proc));
+    const aS=an(side),aM=an(mid),aMh=an(above200(mid)),aSh=an(above200(side)),aPh=an(above200(proc)),aL=an(lP),aR=an(rH);
     const buf=new Float32Array(2048),rms=a=>{ a.getFloatTimeDomainData(buf); let x=0; for(const v of buf) x+=v*v; return Math.sqrt(x/buf.length); };
-    let quiet=0,loud=0,boost=1;
+    let quiet=0,loud=0,boost=1,eL=0,eR=0,eS=0;
     timer=setInterval(()=>{
       const sv=rms(aS),mv=rms(aM);
       // 只比 200Hz 以上：原音＝√(中間² + 兩側²)（side 是左減右＝兩側的兩倍）；人聲拿掉了，目標抓原音的七成
@@ -472,14 +477,25 @@ function startVR(){
       if(mv<0.01) return; // 沒聲音（換歌、廣告空檔）時不判斷
       if(sv/mv<0.04){ loud=0; if(++quiet===6&&!mono){ mono=true; mix(); if(on) bc.postMessage({t:'mono'}); } }
       else { quiet=0; if(++loud===3&&mono){ mono=false; mix(); } }
+      // 左右分開的判斷：原唱那邊＝伴唱＋人聲，所以「兩邊能量差」幾乎等於「左減右的能量」；一般歌左右差不多大，差很小
+      const k=0.15,l=rms(aL),r=rms(aR)*2; eL+=(l*l-eL)*k; eR+=(r*r-eR)*k; eS+=(sv*sv-eS)*k;
+      const ratio=eS>1e-6?Math.abs(eR-eL)/eS:0; window.__vr.ratio=ratio;
+      if(!dualLock){
+        if(ratio>0.85){ normN=0; if(++dualN===20){ const d=eR>eL?'L':'R'; if(d!==dual){ dual=d; pick(); mix(); } } }
+        else if(ratio<0.3){ dualN=0; if(++normN===12&&dual){ dual=null; pick(); mix(); } }
+      }
     },250);
     $('#vrGo').disabled=true; $('#vrGo').textContent='進行中'; $('#vrTog').disabled=false; $('#vrIntro').style.display='none';
     mix(true);
   };
   $('#vrTog').onclick=()=>{ on=!on; mix(); bc.postMessage({t:'user',on}); };
-  bc.onmessage=e=>{ const m=e.data||{}; if(m.t==='set'&&stream){ on=!!m.on; mix(); } else if(m.t==='ask') say(); };
+  // 自動判斷猜錯時：換另一邊，或改回一般去人聲（這首歌就不再自動判斷）
+  $('#vrFlip').onclick=()=>{ if(!dual) return; dual=dual==='L'?'R':'L'; dualLock=true; pick(); mix(); };
+  $('#vrNorm').onclick=()=>{ dual=null; dualLock=true; pick(); mix(); };
+  // 換歌（電視送 set）時重新判斷左右聲道
+  bc.onmessage=e=>{ const m=e.data||{}; if(m.t==='set'&&stream){ on=!!m.on; dualLock=false; dual=null; dualN=normN=0; pick(); mix(); } else if(m.t==='ask') say(); };
   addEventListener('pagehide',()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; say(); } });
-  window.__vr={mix,get on(){return on;},get mono(){return mono;}};
+  window.__vr={mix,get on(){return on;},get mono(){return mono;},get dual(){return dual;}};
 }
 
 if(IS_VR) startVR(); else if(IS_REMOTE) startRemote(); else startTV();
