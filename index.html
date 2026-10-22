@@ -570,15 +570,39 @@ function startTV(){
     vrSync=()=>{ if(vrLive&&vrOn) bc.postMessage({t:'set',on:false}); };
     bc.onmessage=e=>{ const m=e.data||{};
       if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn();
-        if(m.live&&m.fresh) toast('去人聲準備好了，要用時按「🎤 去人聲」');
+        if(m.live&&m.fresh){ if(m.on){ toast('🎤 去人聲開始了（換下一首會先回原音）'); vrRemember(true); } else toast('去人聲準備好了，要用時按「🎤 去人聲」'); }
         if(!m.live&&was) toast('去人聲已關閉，恢復原音'); }
       else if(m.t==='user') vrRemember(m.on);
-      else if(m.t==='mono') toast('這首是單聲道，人聲消不掉，先放原音'); };
-    $('#bVr').onclick=()=>{
+      else if(m.t==='mono') toast('這首是單聲道，人聲消不掉，先放原音');
+      else if(m.t==='needClick'){ toast('請在去人聲小視窗按一下「開始」',6000); if(vrWin) try{ vrWin.focus(); }catch(e){} } };
+    // 開（或找回）去人聲小視窗；同名視窗已經開著就直接用，不重新載入
+    const vrOpen=()=>{
+      if(vrWin&&!vrWin.closed) return vrWin;
+      const w=window.open('','ktv-vr','width=440,height=560'); if(!w) return null;
+      try{ if(!w.__vrAttach&&w.location.href==='about:blank') w.location.href=location.pathname+'?vr=1'; }catch(e){}
+      return vrWin=w;
+    };
+    let vrPending=null,vrBusy=false;
+    async function vrHandOver(st){ // 等小視窗準備好，把分享到的聲音交給它
+      for(let i=0;i<80&&!(vrWin&&vrWin.__vrAttach);i++) await new Promise(r=>setTimeout(r,100));
+      if(!(vrWin&&vrWin.__vrAttach)){ st.getTracks().forEach(t=>t.stop()); toast('去人聲視窗沒開好，請再按一次「🎤 去人聲」'); return; }
+      vrWin.__vrAttach(st,{on:true}); vrPending=null; vrBtn();
+    }
+    $('#bVr').onclick=async()=>{
       if(vrLive){ const on=!vrOn; bc.postMessage({t:'set',on}); vrRemember(on); return; }
-      if(vrWin&&!vrWin.closed){ vrWin.focus(); return; }
-      vrWin=window.open(location.pathname+'?vr=1','ktv-vr','width=440,height=560');
-      if(!vrWin) alert('小視窗被瀏覽器擋住了，請允許這個網站開啟彈出式視窗後再按一次');
+      if(vrPending){ if(vrOpen()) vrHandOver(vrPending); return; } // 上一次彈出視窗被擋，這次補開
+      if(vrBusy) return; vrBusy=true;
+      try{
+        let st;
+        try{ st=await navigator.mediaDevices.getDisplayMedia({video:true,
+          audio:{suppressLocalAudioPlayback:true,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2},
+          preferCurrentTab:true,selfBrowserSurface:'include',systemAudio:'exclude',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'}); }
+        catch(e){ toast('沒有開始去人聲（取消了）'); return; }
+        st.getVideoTracks().forEach(t=>t.stop());
+        if(!st.getAudioTracks().length){ st.getTracks().forEach(t=>t.stop()); toast('沒有分享到聲音：請再按一次，記得勾「同時分享分頁音訊」',5000); return; }
+        if(!vrOpen()){ vrPending=st; $('#bVr').textContent='🎤 再按一下完成去人聲'; toast('再按一下「🎤 去人聲」就完成了',6000); return; }
+        await vrHandOver(st);
+      } finally { vrBusy=false; }
     };
     bc.postMessage({t:'ask'});
   }
@@ -631,7 +655,7 @@ function startVR(){
   const bc=new BroadcastChannel('ktv-vr');
   let ctx=null,stream=null,wet=null,dry=null,on=false,mono=false,timer=0,dual=null,dualLock=false,dualN=0,normN=0,pick=()=>{};
   $('#app').innerHTML='<header><span class="logo">🎤 去人聲</span></header><div id="vr">'+
-    '<div id="vrIntro"><ol><li>按下面的「開始」</li><li>在跳出的視窗選「<b>分頁</b>」→ 點「<b>隨時唱 KTV</b>」</li><li>確認有勾「<b>同時分享分頁音訊</b>」→ 按「<b>分享</b>」</li></ol></div>'+
+    '<div id="vrIntro"><p class="small" style="margin:0 0 6px">在唱歌畫面按「🎤 去人聲」→ 按「分享」就會自動接上。也可以在這裡手動開始：</p><ol><li>按下面的「開始」</li><li>在跳出的視窗選「<b>分頁</b>」→ 點「<b>隨時唱 KTV</b>」</li><li>確認有勾「<b>同時分享分頁音訊</b>」→ 按「<b>分享</b>」</li></ol></div>'+
     '<button class="main big" id="vrGo">開始</button>'+
     '<div class="st" id="vrSt">還沒開始</div>'+
     '<div class="small">音量</div><div class="meter"><i id="vrM"></i></div>'+
@@ -648,20 +672,34 @@ function startVR(){
     say(fresh);
   }
   function stop(){
+    if(!stream&&!ctx) return;
     clearInterval(timer); if(stream) stream.getTracks().forEach(t=>t.stop()); stream=null;
     if(ctx){ ctx.close(); ctx=null; }
     $('#vrGo').disabled=false; $('#vrGo').textContent='開始'; $('#vrTog').disabled=true; $('#vrIntro').style.display=''; mix(); say();
   }
+  // 手動開始（舊做法，自己選分頁）
   $('#vrGo').onclick=async()=>{
+    if(ctx&&ctx.state!=='running'){ await ctx.resume(); vrReady(); return; } // 瀏覽器要求先點一下才能出聲
+    let st;
     try{
-      stream=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser'},
+      st=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser'},
         audio:{suppressLocalAudioPlayback:true,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2},
         selfBrowserSurface:'exclude',systemAudio:'exclude',surfaceSwitching:'exclude',preferCurrentTab:false});
-    }catch(e){ stream=null; $('#vrSt').textContent='沒有開始（取消了或瀏覽器不支援），可以再按一次「開始」'; return; }
-    stream.getVideoTracks().forEach(t=>t.stop());
-    const at=stream.getAudioTracks()[0];
-    if(!at){ stream.getTracks().forEach(t=>t.stop()); stream=null; $('#vrSt').textContent='沒有分享到聲音：請再按一次，記得勾「同時分享分頁音訊」'; return; }
-    at.onended=stop;
+    }catch(e){ $('#vrSt').textContent='沒有開始（取消了或瀏覽器不支援），可以再按一次「開始」'; return; }
+    st.getVideoTracks().forEach(t=>t.stop());
+    if(!st.getAudioTracks().length){ st.getTracks().forEach(t=>t.stop()); $('#vrSt').textContent='沒有分享到聲音：請再按一次，記得勾「同時分享分頁音訊」'; return; }
+    begin(st);
+  };
+  // 電視頁分享好聲音後直接交過來
+  window.__vrAttach=(st,o)=>{ if(stream) stop(); if(o&&o.on) on=true; begin(st); }; // 從唱歌畫面按「去人聲」來的＝這首馬上開
+  function vrReady(){ // 聲音真的開始處理了才算啟動
+    if(!ctx||ctx.state!=='running'){ $('#vrGo').disabled=false; $('#vrGo').textContent='▶ 按這裡開始（瀏覽器要求先點一下）'; $('#vrSt').textContent='已接上唱歌畫面，按上面的按鈕就開始'; return false; }
+    $('#vrGo').disabled=true; $('#vrGo').textContent='進行中'; $('#vrTog').disabled=false; $('#vrIntro').style.display='none';
+    mix(true); return true;
+  }
+  async function begin(st){
+    stream=st; const at=stream.getAudioTracks()[0];
+    at.addEventListener('ended',stop);
     ctx=new AudioContext({latencyHint:'interactive'});
     const g=v=>{ const n=ctx.createGain(); n.gain.value=v; return n; };
     const src=ctx.createMediaStreamSource(new MediaStream([at])),sp=ctx.createChannelSplitter(2);
@@ -705,9 +743,9 @@ function startVR(){
         else if(ratio<0.3){ dualN=0; if(++normN===12&&dual){ dual=null; pick(); mix(); } }
       }
     },250);
-    $('#vrGo').disabled=true; $('#vrGo').textContent='進行中'; $('#vrTog').disabled=false; $('#vrIntro').style.display='none';
-    mix(true);
-  };
+    if(ctx.state!=='running') await Promise.race([ctx.resume(),new Promise(r=>setTimeout(r,400))]);
+    if(!vrReady()) bc.postMessage({t:'needClick'});
+  }
   $('#vrTog').onclick=()=>{ on=!on; mix(); bc.postMessage({t:'user',on}); };
   // 自動判斷猜錯時：換另一邊，或改回一般去人聲（這首歌就不再自動判斷）
   $('#vrFlip').onclick=()=>{ if(!dual) return; dual=dual==='L'?'R':'L'; dualLock=true; pick(); mix(); };
