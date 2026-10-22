@@ -98,6 +98,17 @@ header .sp{flex:1}
 
 .maybeHd{margin:10px 6px 4px;padding:6px 8px;border-top:1px dashed var(--line);font-size:12px;color:var(--gold)}
 
+/* 歌單 */
+.plBar{display:flex;gap:6px;flex-wrap:wrap;padding:6px}
+.chip{padding:5px 11px;font-size:13px;border-radius:999px;background:var(--panel);border:1px solid var(--line)}
+.chip.on{background:var(--pink);border-color:var(--pink);color:#fff}
+.chip .small{color:inherit;opacity:.75}
+.plTools{display:flex;gap:8px;padding:2px 6px 8px;flex-wrap:wrap}
+.plTools button{padding:6px 12px;font-size:13px}
+.popMenu{position:fixed;z-index:50;display:flex;flex-direction:column;gap:4px;min-width:160px;max-width:80vw;padding:6px;border-radius:12px;background:var(--panel);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.popMenu button{text-align:left;font-size:14px}
+.popMenu .hd{font-size:12px;color:var(--dim);padding:2px 6px}
+
 /* 電腦裡的歌 */
 .ph{width:72px;height:40px;border-radius:6px;flex:none;background:linear-gradient(135deg,#3b1d6e,#1d1436);display:flex;align-items:center;justify-content:center;font-size:20px}
 .localAdd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px}
@@ -436,7 +447,7 @@ const UI={};   // 各模式提供 act(cmd)、state()
 function searchHTML(){
   return '<div class="search"><input id="q" placeholder="輸入歌名或歌手，或貼上 YouTube 網址" enterkeyhint="search" autocomplete="off"><button class="main" id="go">搜尋</button></div>'+
     '<label class="opt"><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label>'+
-    '<div class="tabs"><button data-tab="search">搜尋結果</button><button data-tab="queue">已點歌曲</button><button data-tab="hist">唱過的</button><button data-tab="local">電腦的歌</button></div>'+
+    '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="queue">已點</button><button data-tab="hist">唱過的</button><button data-tab="pl">歌單</button><button data-tab="local">電腦的歌</button></div>'+
     '<div class="list" id="list"></div>';
 }
 function bindSearch(){
@@ -450,13 +461,19 @@ function bindSearch(){
     if(b.dataset.hot){ $('#q').value=b.dataset.hot; doSearch(b.dataset.hot); return; }
     const a=b.dataset.a,i=+b.dataset.i;
     if(a==='add'||a==='ins'){
-      const src=tab==='hist'?hist():tab==='local'?UI.lib():results; const s=src&&src[i]; if(!s) return;
+      const src=tab==='hist'?hist():tab==='local'?UI.lib():tab==='pl'?(plCur()||{songs:[]}).songs:results; const s=src&&src[i]; if(!s) return;
       UI.act({t:'add',s:song(s),top:a==='ins'});
       b.textContent='✓ 已點'; b.disabled=true;
     } else if(a==='del'||a==='top') UI.act({t:a,k:b.dataset.k});
     else if(a==='hdel') UI.act({t:'hdel',id:b.dataset.id});
     else if(a==='ldel'){ if(confirm('要從「電腦的歌」刪掉這首嗎？（電腦裡原本的檔案不會被刪）')) UI.act({t:'ldel',id:b.dataset.id}); }
     else if(b.id==='addLocal'&&UI.pickFiles) UI.pickFiles();
+    else if(a==='plPick'){ const s=hist()[i]; if(s) addToList(b,song(s)); }
+    else if(b.dataset.pl&&!a){ plSel=b.dataset.pl; save('ktv.plSel',plSel); renderList(); }
+    else if(a==='plNew'){ const name=(prompt('新歌單的名字（例如：小明的歌）')||'').trim(); if(name) UI.act({t:'plNew',name}); }
+    else if(a==='plAll'){ UI.act({t:'plAll',pl:b.dataset.pl}); b.textContent='✓ 已全部點歌'; b.disabled=true; }
+    else if(a==='plRm'){ const p=plCur(); if(p&&confirm('要刪除歌單「'+p.name+'」嗎？（歌單裡的歌不會從別的地方消失）')) UI.act({t:'plRm',pl:p.id}); }
+    else if(a==='plDel') UI.act({t:'plDel',pl:b.dataset.pl,id:b.dataset.id});
   };
 }
 async function doSearch(text){
@@ -483,6 +500,29 @@ async function doSearch(text){
 }
 const hist=()=>UI.hist?UI.hist():load('ktv.hist',[]);
 UI.lib=()=>[];
+UI.lists=()=>[];
+let plSel=load('ktv.plSel','');
+const plCur=()=>{ const L=UI.lists(); return L.find(p=>p.id===plSel)||L[0]||null; };
+// 小小的彈出選單（選要加到哪個歌單）
+let popEl=null;
+function closePop(){ if(popEl){ popEl.remove(); popEl=null; document.removeEventListener('pointerdown',popOutside,true); } }
+function popOutside(e){ if(popEl&&!popEl.contains(e.target)) closePop(); }
+function popMenu(anchor,title,items,pick){
+  closePop(); popEl=document.createElement('div'); popEl.className='popMenu';
+  popEl.innerHTML='<div class="hd">'+esc(title)+'</div>'+items.map((t,i)=>'<button data-k="'+i+'">'+esc(t)+'</button>').join('');
+  document.body.appendChild(popEl);
+  const r=anchor.getBoundingClientRect(),w=popEl.offsetWidth,h=popEl.offsetHeight;
+  popEl.style.left=Math.max(8,Math.min(r.right-w,innerWidth-w-8))+'px';
+  popEl.style.top=(r.bottom+4+h<innerHeight?r.bottom+4:Math.max(8,r.top-h-4))+'px';
+  popEl.onclick=e=>{ const b=e.target.closest('button'); if(b){ const k=+b.dataset.k; closePop(); pick(k); } };
+  setTimeout(()=>document.addEventListener('pointerdown',popOutside,true),0);
+}
+// 把一首歌加進歌單：只有一個歌單就直接加，好幾個就跳選單；也可以當場開新歌單
+function addToList(anchor,sg){
+  const L=UI.lists(),newOne=()=>{ const name=(prompt('新歌單的名字（例如：小明的歌）')||'').trim(); if(name) UI.act({t:'plNew',name,s:sg}); };
+  if(L.length<=1&&L[0]) return UI.act({t:'plAdd',pl:L[0].id,s:sg});
+  popMenu(anchor,'加到哪個歌單？',L.map(p=>p.name+'（'+p.songs.length+'）').concat('＋ 新歌單…'),k=>k<L.length?UI.act({t:'plAdd',pl:L[k].id,s:sg}):newOne());
+}
 let VR_IDS=new Set(load('ktv.vrSongs',[])); // 開過去人聲的歌（影片代號）
 function rowHTML(s,i,btns,num){
   return '<div class="it">'+(num?'<span class="n">'+num+'</span>':'')+(isLocal(s)?'<div class="ph">'+(s.kind==='video'?'🎬':'🎵')+'</div>':'<img loading="lazy" src="'+thumb(esc(s.id))+'" alt="">')+
@@ -490,7 +530,7 @@ function rowHTML(s,i,btns,num){
 }
 function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
-  document.querySelectorAll('.tabs button').forEach(b=>{ b.classList.toggle('on',b.dataset.tab===tab); if(b.dataset.tab==='queue') b.textContent='已點歌曲'+(st.q.length?'('+st.q.length+')':''); });
+  document.querySelectorAll('.tabs button').forEach(b=>{ b.classList.toggle('on',b.dataset.tab===tab); if(b.dataset.tab==='queue') b.textContent='已點'+(st.q.length?'('+st.q.length+')':''); });
   let h='';
   if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';
@@ -501,6 +541,15 @@ function renderList(){
   } else if(tab==='queue'){
     h=(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
       (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
+  } else if(tab==='pl'){
+    const L=UI.lists(),cur=plCur();
+    h='<div class="plBar">'+L.map(p=>'<button class="chip'+(p===cur?' on':'')+'" data-pl="'+esc(p.id)+'">'+esc(p.name)+' <span class="small">'+p.songs.length+'</span></button>').join('')+'<button class="chip" data-a="plNew">＋ 新歌單</button></div>';
+    if(cur){
+      const tools=(cur.songs.length?'<button class="main" data-a="plAll" data-pl="'+esc(cur.id)+'">▶ 全部點歌</button>':'')+(L.length>1?'<button data-a="plRm">刪除這個歌單</button>':'');
+      h+=(tools?'<div class="plTools">'+tools+'</div>':'')+(cur.songs.length
+        ?cur.songs.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button><button data-a="plDel" data-pl="'+esc(cur.id)+'" data-id="'+esc(s.id)+'" title="從歌單移除" aria-label="從歌單移除">✕</button>')).join('')
+        :'<div class="empty">「'+esc(cur.name)+'」還是空的<br><span class="small">到「唱過的」按「＋歌單」把歌加進來</span></div>');
+    }
   } else if(tab==='local'){
     const L=UI.lib();
     h=(IS_REMOTE?'':'<div class="localAdd"><button class="main" id="addLocal">📁 加入電腦裡的歌</button><span class="small">也可以把檔案直接拖進這個視窗</span></div>')+
@@ -508,7 +557,7 @@ function renderList(){
        :'<div class="empty">'+(IS_REMOTE?'電腦裡的歌要在播放的那台電腦加入':'還沒有加入歌曲<br><span class="small">支援 MP3、M4A、WAV、MP4 等瀏覽器能播的格式</span>')+'</div>');
   } else {
     const H=hist();
-    h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button><button data-a="hdel" data-id="'+esc(s.id)+'" title="從唱過的刪除" aria-label="從唱過的刪除">✕</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
+    h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button><button data-a="plPick" data-i="'+i+'" title="加到歌單">＋歌單</button><button data-a="hdel" data-id="'+esc(s.id)+'" title="從唱過的刪除" aria-label="從唱過的刪除">✕</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
   }
   el.innerHTML=h;
 }
@@ -577,6 +626,10 @@ function startTV(){
 
   // ---------- 電腦裡的歌：播放、去人聲、升降 Key ----------
   let LIB=load('ktv.localList',[]),LA=null,localTok=0;
+  // 歌單存在電視這台的瀏覽器，隨廣播給手機
+  let PL=load('ktv.lists',null); if(!Array.isArray(PL)||!PL.length) PL=[{id:'p1',name:'我的歌單',songs:[]}];
+  const savePL=()=>save('ktv.lists',PL);
+  UI.lists=()=>PL;
   const saveLib=()=>save('ktv.localList',LIB);
   UI.lib=()=>LIB;
   LocalLib.list().then(a=>{ LIB=a; saveLib(); renderList(); send(); }).catch(()=>{});
@@ -676,6 +729,20 @@ function startTV(){
       else { if(!ready) return; if(S.paused) player.playVideo(); else player.pauseVideo(); }
       S.paused=!S.paused; }
     else if(c.t==='replay'){ if(!S.now) return; if(isLocal(S.now)){ if(LA){ LA.el.currentTime=0; LA.el.play().catch(()=>{}); } } else if(ready){ player.seekTo(0,true); player.playVideo(); } return; }
+    else if(c.t==='plAdd'||c.t==='plNew'){
+      let p=c.t==='plAdd'?PL.find(x=>x.id===c.pl):null;
+      if(c.t==='plNew'){ const name=String(c.name||'').replace(/[<>&"'\\]/g,'').trim().slice(0,20); if(!name) return; p={id:'p'+keyOf(),name,songs:[]}; PL.push(p); plSel=p.id; save('ktv.plSel',plSel); }
+      if(!p) return;
+      if(c.s&&c.s.id){ const sg=song(c.s); if(p.songs.some(x=>x.id===sg.id)) toast('「'+sg.title+'」已經在「'+p.name+'」裡了'); else { p.songs.unshift(sg); toast('已加入「'+p.name+'」：'+sg.title); } }
+      else toast('新增了歌單「'+p.name+'」');
+      savePL(); }
+    else if(c.t==='plDel'){ const p=PL.find(x=>x.id===c.pl); if(!p) return; p.songs=p.songs.filter(x=>x.id!==c.id); savePL(); }
+    else if(c.t==='plRm'){ if(PL.length<=1) return toast('至少要留一個歌單'); PL=PL.filter(x=>x.id!==c.pl); savePL(); }
+    else if(c.t==='plAll'){
+      const p=PL.find(x=>x.id===c.pl); if(!p) return; let n=0;
+      for(const sg of p.songs){ if(isLocal(sg)&&!LIB.some(x=>x.id===sg.id)) continue; S.q.push(Object.assign(song(sg),{k:keyOf(),by:clean(c.by)})); n++; }
+      toast('「'+p.name+'」的 '+n+' 首歌都點好了');
+      if(!S.now&&S.q.length) return next(); }
     else if(c.t==='ldel'){ LIB=LIB.filter(x=>x.id!==c.id); saveLib(); LocalLib.del(c.id).catch(()=>{}); }
     else if(c.t==='hi') return send();
     else if(c.t==='fx') return fx(c.n,clean(c.by)||'有人');
@@ -683,7 +750,7 @@ function startTV(){
     changed();
   }
   let mq=null;
-  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300)}); }
+  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300),lists:PL.map(p=>({id:p.id,name:p.name,songs:p.songs.slice(0,200)}))}); }
   function changed(){
     save('ktv.state',{now:S.now,q:S.q});
     $('#idle').style.display=S.now?'none':'flex';
@@ -782,8 +849,12 @@ function startRemote(){
   const nm=$('#nm'); nm.value=load('ktv.name','');
   nm.onchange=()=>save('ktv.name',clean(nm.value));
   const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上電視，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
-  UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[];
-  UI.act=c=>{ c.by=clean(nm.value); if(pub(c)&&c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title); };
+  UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
+  UI.act=c=>{ c.by=clean(nm.value); if(!pub(c)) return;
+    if(c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title);
+    else if(c.t==='plAdd') toast('已加入歌單：'+c.s.title);
+    else if(c.t==='plNew') toast('新增了歌單「'+c.name+'」');
+    else if(c.t==='plAll') toast('整個歌單都點好了'); };
   bindSearch();
   $('#bPause').onclick=()=>pub({t:'pause'});
   $('#bReplay').onclick=()=>pub({t:'replay'});
@@ -796,7 +867,7 @@ function startRemote(){
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
     o=>{ if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
-      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
+      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   draw(); $('#nowT').textContent='連線中…';
   window.__ktv={S:()=>S,mq};
