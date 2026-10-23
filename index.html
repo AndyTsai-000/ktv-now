@@ -64,6 +64,7 @@ header .sp{flex:1}
 .it .t{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35;word-break:break-all}
 .it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .it button{padding:6px 10px;font-size:13px;flex:none}
+.it button:not(.main),.plTools button:not(.main){background:var(--panel);border:1px solid var(--line)} /* 跟清單底色一樣時看不出是按鈕 */
 .it .n{width:22px;text-align:center;color:var(--gold);font-weight:700;flex:none}
 .empty{padding:20px 10px;text-align:center;color:var(--dim)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}
@@ -142,6 +143,7 @@ body.dragging #side{outline:3px dashed var(--pink);outline-offset:-6px}
 #vr .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--pink));transition:width .2s}
 #bVr.on{background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff}
 
+@media (max-width:1280px){ .ctl button{padding:10px 11px} }
 @media (max-width:900px){
   #app{height:auto;min-height:100%}
   #tv{display:block}
@@ -159,6 +161,9 @@ body.dragging #side{outline:3px dashed var(--pink);outline-offset:-6px}
   #idleQr img,#idleQr canvas{width:110px!important}
   .it img,.ph{width:56px;height:32px}
   .tabs button{font-size:13px}
+  .search input,.name{font-size:16px} /* iPhone 輸入框小於 16px 一點下去整頁會放大 */
+  #toast{font-size:14px;padding:8px 12px;bottom:10px}
+  .fxGrid button{white-space:nowrap;padding:6px 2px}
 }
 </style>
 </head>
@@ -172,6 +177,8 @@ const MQ_URL='wss://broker.emqx.io:8084/mqtt',TOPIC='ktv-now-tw/';
 const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'').slice(0,6);
 const IS_REMOTE=JOIN.length===6;
 const IS_VR=new URLSearchParams(location.search).get('vr')==='1';
+const IS_MOBILE=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+const DEV=IS_MOBILE&&!IS_REMOTE?'手機':'電腦'; // 手機自己當電視時，「電腦的歌」其實是手機裡的歌
 const APP_V='2026-10-23c'; // 去人聲小視窗會一直開著，網站更新後要知道它是不是舊版
 const CAN_VR=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 // 搜尋頁的快捷鍵：[顯示的字, 實際搜尋的字或好幾組字]（外文＝英文＋韓文，用英文搜比較找得到伴唱版）
@@ -536,7 +543,7 @@ const UI={};   // 各模式提供 act(cmd)、state()
 function searchHTML(){
   return '<div class="search"><input id="q" placeholder="輸入歌名或歌手，或貼上 YouTube 網址" enterkeyhint="search" autocomplete="off"><button class="main" id="go">搜尋</button></div>'+
     '<div class="opt"><label><input type="checkbox" id="kOnly"'+(load('ktv.kOnly',true)?' checked':'')+'> 只找 KTV 伴唱版</label></div>'+
-    '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="top">推薦</button><button data-tab="new">最新</button><button data-tab="queue">已點</button><button data-tab="hist">唱過</button><button data-tab="pl">歌單</button><button data-tab="local">電腦的歌</button></div>'+
+    '<div class="tabs"><button data-tab="search">搜尋</button><button data-tab="top">推薦</button><button data-tab="new">最新</button><button data-tab="queue">已點</button><button data-tab="hist">唱過</button><button data-tab="pl">歌單</button><button data-tab="local">'+DEV+'的歌</button></div>'+
     '<div class="list" id="list"></div>';
 }
 function bindSearch(){
@@ -554,10 +561,13 @@ function bindSearch(){
     if(a==='cFind'||a==='cAdd'||a==='cIns'){
       const c=CH[tab]&&CH[tab].list&&CH[tab].list[i]; if(!c) return;
       if(a==='cFind'){ const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); return; }
-      b.disabled=true; b.textContent='找伴唱中…';
+      const ck=c.title+'|'+c.singer; if(cBusy.get(ck)==='busy') return;
+      cBusy.set(ck,'busy'); renderList(); // 清單重畫時按鈕也要維持「找伴唱中」，不然會被連點兩次
       findKaraoke(c.title,c.singer).then(r=>{
-        if(r){ UI.act({t:'add',s:r.sg,top:a==='cIns'}); b.textContent='✓ 已點'; if(!r.karaoke) toast('「'+c.title+'」還沒有伴唱版，先放原版，可以按 🎤 去人聲',5000); }
-        else { b.textContent='找不到'; toast('找不到「'+c.title+'」原唱的伴唱版或原曲，幫你列出搜尋結果自己挑'); const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); }
+        if(r){ cBusy.set(ck,'done'); setTimeout(()=>{ cBusy.delete(ck); renderList(); },4000); } else cBusy.delete(ck); // 「✓ 已點」停 4 秒，免得連點兩次
+        renderList();
+        if(r){ UI.act({t:'add',s:r.sg,top:a==='cIns'}); if(!r.karaoke) toast('「'+c.title+'」還沒有伴唱版，先放原版，可以按 🎤 去人聲',5000); }
+        else { toast('找不到「'+c.title+'」原唱的伴唱版或原曲，幫你列出搜尋結果自己挑'); const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); }
       });
       return;
     }
@@ -567,7 +577,7 @@ function bindSearch(){
       b.textContent='✓ 已點'; b.disabled=true;
     } else if(a==='del'||a==='top') UI.act({t:a,k:b.dataset.k});
     else if(a==='hdel') UI.act({t:'hdel',id:b.dataset.id});
-    else if(a==='ldel'){ if(confirm('要從「電腦的歌」刪掉這首嗎？（電腦裡原本的檔案不會被刪）')) UI.act({t:'ldel',id:b.dataset.id}); }
+    else if(a==='ldel'){ if(confirm('要從「'+DEV+'的歌」刪掉這首嗎？（'+DEV+'裡原本的檔案不會被刪）')) UI.act({t:'ldel',id:b.dataset.id}); }
     else if(b.id==='addLocal'&&UI.pickFiles) UI.pickFiles();
     else if(a==='plPick'){ const s=hist()[i]; if(s) addToList(b,song(s)); }
     else if(b.dataset.pl&&!a){ plSel=b.dataset.pl; save('ktv.plSel',plSel); renderList(); }
@@ -578,6 +588,7 @@ function bindSearch(){
   };
 }
 // 搜尋結果回到一開始的類別畫面：結果上方「‹ 回到類別」、在搜尋分頁再按一次「搜尋」、瀏覽器上一頁（手機往回滑）
+const cBusy=new Map(); // 推薦／最新每首歌的點歌狀態：busy 找伴唱中、done 已點
 const backBar=()=>'<div class="plTools"><button data-a="back">‹ 回到類別</button></div>';
 let backPushed=false;
 function searchHome(){ results=null; hidden=0; maybeAt=-1; searching=false; const q=$('#q'); if(q) q.value=''; tab='search'; renderList(); }
@@ -652,7 +663,7 @@ function renderList(){
     if(!C.list) h+='<div class="empty">讀取中…</div>';
     else if(!C.list.length) h+='<div class="empty">'+(C.err?'排行榜暫時讀不到，等一下再試':'這一類目前沒有歌')+'</div>';
     else h+=C.list.map((c,i)=>'<div class="it"><span class="n rk">'+esc(c.rank)+'</span><div class="tx"><div class="t" title="'+esc(c.title)+'">'+esc(c.title)+'</div><div class="s">'+esc(c.singer)+(c.src?' ・ <span title="出現在哪些排行榜（數字是名次）">'+esc(c.src)+'</span>':'')+'</div></div>'+
-      '<button class="main" data-a="cAdd" data-i="'+i+'">點歌</button><button data-a="cIns" data-i="'+i+'">插播</button><button data-a="cFind" data-i="'+i+'" title="列出 YouTube 上的版本自己挑">找版本</button></div>').join('');
+      (st=>st==='busy'?'<button class="main" disabled>找伴唱中…</button>':(st==='done'?'<button class="main" disabled>✓ 已點</button>':'<button class="main" data-a="cAdd" data-i="'+i+'">點歌</button>')+'<button data-a="cIns" data-i="'+i+'">插播</button>')(cBusy.get(c.title+'|'+c.singer))+'<button data-a="cFind" data-i="'+i+'" title="列出 YouTube 上的版本自己挑">找版本</button></div>').join('');
   } else if(tab==='search'){
     if(searching) h='<div class="empty">搜尋中…</div>';
     else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(([t])=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
@@ -669,13 +680,13 @@ function renderList(){
       const tools=(cur.songs.length?'<button class="main" data-a="plAll" data-pl="'+esc(cur.id)+'">▶ 全部點歌</button>':'')+(L.length>1?'<button data-a="plRm">刪除這個歌單</button>':'');
       h+=(tools?'<div class="plTools">'+tools+'</div>':'')+(cur.songs.length
         ?cur.songs.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button><button data-a="plDel" data-pl="'+esc(cur.id)+'" data-id="'+esc(s.id)+'" title="從歌單移除" aria-label="從歌單移除">✕</button>')).join('')
-        :'<div class="empty">「'+esc(cur.name)+'」還是空的<br><span class="small">到「唱過的」按「＋歌單」把歌加進來</span></div>');
+        :'<div class="empty">「'+esc(cur.name)+'」還是空的<br><span class="small">到「唱過」按「＋歌單」把歌加進來</span></div>');
     }
   } else if(tab==='local'){
     const L=UI.lib();
-    h=(IS_REMOTE?'':'<div class="localAdd"><button class="main" id="addLocal">📁 加入電腦裡的歌</button><span class="small">也可以把檔案直接拖進這個視窗</span></div>')+
-      (L.length?L.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>'+(IS_REMOTE?'':'<button data-a="ldel" data-id="'+esc(s.id)+'" title="從電腦的歌刪除" aria-label="從電腦的歌刪除">✕</button>'))).join('')
-       :'<div class="empty">'+(IS_REMOTE?'電腦裡的歌要在播放的那台電腦加入':'還沒有加入歌曲<br><span class="small">支援 MP3、M4A、WAV、MP4 等瀏覽器能播的格式</span>')+'</div>');
+    h=(IS_REMOTE?'':'<div class="localAdd"><button class="main" id="addLocal">📁 加入'+DEV+'裡的歌</button>'+(IS_MOBILE?'':'<span class="small">也可以把檔案直接拖進這個視窗</span>')+'</div>')+
+      (L.length?L.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>'+(IS_REMOTE?'':'<button data-a="ldel" data-id="'+esc(s.id)+'" title="從'+DEV+'的歌刪除" aria-label="從'+DEV+'的歌刪除">✕</button>'))).join('')
+       :'<div class="empty">'+(IS_REMOTE?'電腦裡的歌要在播放的那台電腦加入':'還沒有加入歌曲<br><span class="small">支援 MP3、M4A、WAV、MP4 等瀏覽器能播的格式'+(IS_MOBILE?'，可以按 🎤 去人聲、升降 Key':'')+'</span>')+'</div>');
   } else {
     const H=hist();
     h=H.length?H.map((s,i)=>rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">再唱</button><button data-a="plPick" data-i="'+i+'" title="加到歌單">＋歌單</button><button data-a="hdel" data-id="'+esc(s.id)+'" title="從唱過的刪除" aria-label="從唱過的刪除">✕</button>')).join(''):'<div class="empty">還沒唱過歌</div>';
@@ -700,7 +711,7 @@ function startTV(){
     '<span class="small hideS"><span class="dot" id="net"></span>手機點歌房號 <b class="code" style="font-size:16px">'+room+'</b></span>'+
     '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 我是手機</button></header>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div><video id="localV" playsinline></video>'+
-      '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 電腦裡的歌</div></div>'+
+      '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 '+DEV+'裡的歌</div></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
       '<div id="fxLayer"></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
       '<div id="fxBar">'+fxButtons()+'</div>'+
@@ -790,7 +801,7 @@ function startTV(){
     const tok=++localTok; if(ready) player.stopVideo();
     const rec=await LocalLib.get(it.id).catch(()=>null);
     if(tok!==localTok) return;
-    if(!rec){ toast('找不到「'+it.title+'」，可能已經從電腦的歌刪掉了'); setTimeout(next,1500); return; }
+    if(!rec){ toast('找不到「'+it.title+'」，可能已經從'+DEV+'的歌刪掉了'); setTimeout(next,1500); return; }
     const A=await localInit(); if(tok!==localTok) return;
     if(A.url) URL.revokeObjectURL(A.url); A.url=URL.createObjectURL(rec.blob);
     A.el.src=A.url; $('#localV').style.display=rec.kind==='video'?'block':'none'; $('#localA').style.display=rec.kind==='video'?'none':'flex'; $('#localT').textContent=rec.title;
@@ -891,9 +902,18 @@ function startTV(){
     $('#nowT').innerHTML=S.now?'♪ '+esc(S.now.title)+(S.now.by?' <span class="small">・'+esc(S.now.by)+' 點的</span>':''):'<span class="small">目前沒有播放</span>';
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     $('#bPause').disabled=$('#bReplay').disabled=!S.now; $('#bSkip').disabled=!S.now&&!S.q.length;
+    awake(!!S.now);
     const n=$('#nextUp'); n.textContent=S.q[0]?'下一首：'+S.q[0].title:''; n.classList.toggle('has',!!S.q[0]);
     renderList(); send(); vrRefresh();
   }
+  // 唱歌時螢幕不要自己變暗、鎖住（手機、筆電放著唱很常遇到）；切到別的程式回來要重新要一次
+  let lock=null,wantAwake=false;
+  function awake(on){
+    wantAwake=on; if(!navigator.wakeLock) return;
+    if(on&&!lock&&document.visibilityState==='visible'){ lock=1; navigator.wakeLock.request('screen').then(l=>{ lock=l; l.addEventListener('release',()=>{ lock=null; }); if(!wantAwake) l.release(); }).catch(()=>{ lock=null; }); }
+    else if(!on&&lock&&lock.release){ lock.release().catch(()=>{}); lock=null; }
+  }
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') awake(wantAwake); });
   UI.state=()=>S; UI.act=c=>handle(Object.assign({by:''},c));
   bindSearch();
   $('#bPause').onclick=()=>handle({t:'pause'});
@@ -971,6 +991,7 @@ function startTV(){
     }
     bc.postMessage({t:'ask'});
   }
+  if(!(document.fullscreenEnabled||document.webkitFullscreenEnabled)) $('#bFull').style.display='none'; // iPhone 的瀏覽器不能讓網頁全螢幕，按了沒反應乾脆不放
   $('#bFull').onclick=()=>{ const st=$('#stage'); if(document.fullscreenElement) document.exitFullscreen(); else if(st.requestFullscreen){ st.requestFullscreen().catch(()=>{});
     // 分頁被分享聲音時，瀏覽器只讓網頁放大到分頁大小，要再按 F11
     if(vrIsLive()) setTimeout(()=>toast('開著去人聲時，再按鍵盤 F11 才是全螢幕（離開也按 F11）',6000),300); } else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
