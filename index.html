@@ -704,7 +704,7 @@ function startTV(){
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
       '<div id="fxLayer"></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
       '<div id="fxBar">'+fxButtons()+'</div>'+
-      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span>'+(CAN_VR?' <button id="bVr" title="把歌手的聲音變小（電腦版 Chrome／Edge）">🎤 去人聲</button>':'')+'</div></div></div>'+
+      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
     '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden>'+
       '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
   if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
@@ -794,7 +794,7 @@ function startTV(){
     const A=await localInit(); if(tok!==localTok) return;
     if(A.url) URL.revokeObjectURL(A.url); A.url=URL.createObjectURL(rec.blob);
     A.el.src=A.url; $('#localV').style.display=rec.kind==='video'?'block':'none'; $('#localA').style.display=rec.kind==='video'?'none':'flex'; $('#localT').textContent=rec.title;
-    A.vr.reset(); A.vr.setOn(false); setKey(0); $('#keyBox').style.display=LA.pitch?'inline-flex':'none';
+    A.vr.reset(); A.vr.setOn(false); setKey(0); $('#keyBox').style.display=LA.pitch?'inline-flex':'none'; $('#bVr').style.display='';
     if(A.ctx.state!=='running') A.ctx.resume().catch(()=>{});
     A.el.play().catch(()=>toast('點一下畫面就開始播放',5000));
     vrRefresh();
@@ -802,7 +802,7 @@ function startTV(){
   function stopLocal(){
     localTok++;
     if(LA){ LA.el.pause(); LA.el.removeAttribute('src'); LA.el.load(); }
-    $('#localV').style.display='none'; $('#localA').style.display='none'; $('#keyBox').style.display='none';
+    $('#localV').style.display='none'; $('#localA').style.display='none'; $('#keyBox').style.display='none'; if(!CAN_VR) $('#bVr').style.display='none'; // 手機：YouTube 的歌沒辦法去人聲
   }
   for(const ev of ['pointerdown','keydown']) document.addEventListener(ev,()=>{ // 瀏覽器不准自動出聲時，點一下畫面就開始
     if(!LA||!isLocal(S.now)) return; if(LA.ctx.state!=='running') LA.ctx.resume(); if(LA.el.paused&&!S.paused&&LA.el.getAttribute('src')) LA.el.play().catch(()=>{});
@@ -840,7 +840,12 @@ function startTV(){
     } else { stopLocal(); if(ready) player.stopVideo(); }
     changed();
   }
-  let vrSync=()=>{},vrRemember=()=>{},vrRefresh=()=>{};
+  // 使用者開／關去人聲時記在正在唱的這首
+  const vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
+  // 電腦裡（或手機裡）的歌直接在這頁去人聲，手機也可以；YouTube 的歌要分享分頁，在下面 CAN_VR 那段
+  const localVrBtn=()=>{ const b=$('#bVr'); if(!isLocal(S.now)||!LA) return; b.classList.toggle('on',LA.vr.on); b.textContent=LA.vr.on?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'; };
+  let vrSync=()=>{},vrRefresh=localVrBtn;
+  $('#bVr').onclick=()=>{ if(!isLocal(S.now)||!LA) return; const v=!LA.vr.on; LA.vr.setOn(v); vrRemember(v); vrRefresh(); if(v) toast('🎤 去人聲開始了（換下一首會先回原音）'); };
   function handle(c){
     if(!c||!c.t) return;
     if(c.t==='add'&&c.s&&(/^[A-Za-z0-9_-]{11}$/.test(c.s.id)||(isLocal(c.s)&&LIB.some(x=>x.id===c.s.id)))){
@@ -912,11 +917,9 @@ function startTV(){
   if(CAN_VR){
     const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false,vrOld=false; vrIsLive=()=>vrLive; vrFx=n=>bc.postMessage({t:'fx',n});
     const vrBtn=()=>{ const b=$('#bVr');
-      if(isLocal(S.now)&&LA){ b.classList.toggle('on',LA.vr.on); b.textContent=LA.vr.on?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'; return; } // 電腦裡的歌直接在這頁處理
+      if(isLocal(S.now)&&LA) return localVrBtn(); // 電腦裡的歌直接在這頁處理
       b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'):'🎤 去人聲'; };
     vrRefresh=vrBtn;
-    // 使用者開／關去人聲時記在正在唱的這首
-    vrRemember=on=>{ if(!S.now) return; if(on) VR_IDS.add(S.now.id); else VR_IDS.delete(S.now.id); save('ktv.vrSongs',[...VR_IDS].slice(-300)); changed(); };
     // 每首歌都先播原音（使用者指定），換歌時把去人聲關掉；🎤 只是標記「這首去過人聲」
     vrSync=()=>{ if(vrLive) bc.postMessage({t:'set',on:false,key:0}); ytKey=0; showKey(0); };
     bc.onmessage=e=>{ const m=e.data||{};
