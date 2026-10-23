@@ -172,6 +172,7 @@ const MQ_URL='wss://broker.emqx.io:8084/mqtt',TOPIC='ktv-now-tw/';
 const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'').slice(0,6);
 const IS_REMOTE=JOIN.length===6;
 const IS_VR=new URLSearchParams(location.search).get('vr')==='1';
+const APP_V='2026-10-23c'; // 去人聲小視窗會一直開著，網站更新後要知道它是不是舊版
 const CAN_VR=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 // 搜尋頁的快捷鍵：[顯示的字, 實際搜尋的字或好幾組字]（外文＝英文＋韓文，用英文搜比較找得到伴唱版）
 const HOT=[['周杰倫'],['五月天'],['告五人'],['蔡依林'],['田馥甄'],['張惠妹'],['林俊傑'],['伍佰'],['張學友'],['鄧紫棋'],['華語經典'],['台語經典'],['大陸歌曲'],['外文歌曲',['English pop karaoke version','Korean song karaoke instrumental']],['對唱情歌']];
@@ -880,7 +881,7 @@ function startTV(){
   document.addEventListener('keydown',e=>{ if(e.target.matches('input,textarea')||e.ctrlKey||e.altKey||e.metaKey) return; const i=+e.key-1; if(FX[i]){ fx(FX[i][0]); const b=$('#fxBar [data-fx='+FX[i][0]+']'); if(b) fxFlash(b); } });
   // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
   if(CAN_VR){
-    const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false; vrIsLive=()=>vrLive; vrFx=n=>bc.postMessage({t:'fx',n});
+    const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false,vrOld=false; vrIsLive=()=>vrLive; vrFx=n=>bc.postMessage({t:'fx',n});
     const vrBtn=()=>{ const b=$('#bVr');
       if(isLocal(S.now)&&LA){ b.classList.toggle('on',LA.vr.on); b.textContent=LA.vr.on?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'; return; } // 電腦裡的歌直接在這頁處理
       b.classList.toggle('on',vrLive&&vrOn); b.textContent=vrLive?(vrOn?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'):'🎤 去人聲'; };
@@ -891,6 +892,7 @@ function startTV(){
     vrSync=()=>{ if(vrLive) bc.postMessage({t:'set',on:false,key:0}); ytKey=0; showKey(0); };
     bc.onmessage=e=>{ const m=e.data||{};
       if(m.t==='state'){ const was=vrLive; vrLive=m.live; vrOn=m.on; vrBtn();
+        if(m.live&&m.v!==APP_V&&!vrOld){ vrOld=true; toast('去人聲小視窗是更新前開的舊版，升降 Key 可能沒反應：請把小視窗關掉，再按一次「🎤 去人聲」',10000); }
         if(S.now&&!isLocal(S.now)&&(m.fresh||!m.live)){ ytKey=m.live?(m.key|0):0; showKey(ytKey); } // 接上後以這頁為準（連按時小視窗回報的是舊的）
         if(m.live&&m.fresh){ if(m.on){ toast('🎤 去人聲開始了（換下一首會先回原音）'); vrRemember(true); } else if(m.key) toast('Key 調好了（換下一首會回原調）'); else toast('去人聲準備好了，要用時按「🎤 去人聲」'); }
         if(!m.live&&was) toast(ytKey?'去人聲視窗關了，恢復原音、原調':'去人聲已關閉，恢復原音'); }
@@ -1056,7 +1058,7 @@ function startVR(){
     '<div class="st" id="vrKey" style="display:none"></div>'+
     '<div class="row" id="vrFix" style="display:none;gap:8px"><button id="vrFlip" style="flex:1">換另一邊</button><button id="vrNorm" style="flex:1">改回一般去人聲</button></div>'+
     '<div class="small">這個視窗要一直開著（可以縮小），關掉就恢復原音。每首歌一開始都是原音，要去人聲再按上面的按鈕；人聲會變小但不一定完全消失。</div></div>';
-  const say=fresh=>bc.postMessage({t:'state',live:!!stream,on,key,fresh:!!fresh});
+  const say=fresh=>bc.postMessage({t:'state',live:!!stream,on,key,fresh:!!fresh,v:APP_V});
   function setPitch(k){ // 原調時繞過變調，不影響音質
     key=Math.max(-6,Math.min(6,k|0));
     if(vr){ vr.out.disconnect(); vr.out.connect(key&&pitch?pitch:ctx.destination); }
