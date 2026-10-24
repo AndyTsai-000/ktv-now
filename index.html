@@ -709,7 +709,7 @@ function startTV(){
 
   $('#app').innerHTML='<header><span class="logo">🎤 隨時唱 KTV</span><span class="sp"></span>'+
     '<span class="small hideS"><span class="dot" id="net"></span>手機點歌房號 <b class="code" style="font-size:16px">'+room+'</b></span>'+
-    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 我是手機</button></header>'+
+    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 手機點歌</button></header>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div><video id="localV" playsinline></video>'+
       '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 '+DEV+'裡的歌</div></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
@@ -717,7 +717,7 @@ function startTV(){
       '<div id="fxBar">'+fxButtons()+'</div>'+
       '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
     '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden>'+
-      '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「我是手機」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
+      '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「手機點歌」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
   if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
   if(!canNet) $('#qrBox').innerHTML='<div class="small">這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。</div>';
 
