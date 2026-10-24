@@ -69,9 +69,16 @@ header .sp{flex:1}
 .empty{padding:20px 10px;text-align:center;color:var(--dim)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}
 .chips button{padding:6px 12px;font-size:13px;background:var(--panel);border:1px solid var(--line)}
-#qrBox{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
-#qrBox .q{background:#fff;padding:6px;border-radius:8px;flex:none}
-#qrBox .q img,#qrBox .q canvas{display:block;width:84px!important;height:auto!important}
+#qrPop{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6)}
+#qrPop[hidden]{display:none}
+#qrPop .card{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;max-width:340px;padding:22px 20px 14px;border-radius:16px;background:var(--panel);border:1px solid var(--line);text-align:center}
+#qrPop .hd{font-size:18px;font-weight:700;margin-bottom:6px}
+#qrPop .q{background:#fff;padding:10px;border-radius:12px}
+#qrPop .q img,#qrPop .q canvas{display:block;width:min(240px,62vw)!important;height:auto!important}
+#qrPop .code{font-size:32px;line-height:1.2}
+#qrPop .x{position:absolute;top:8px;right:8px;padding:6px 11px}
+#qrPop .link{background:transparent;color:var(--dim);font-size:13px;text-decoration:underline;margin-top:6px}
+#asPhone .dot{margin-right:6px}
 .code{font-size:22px;font-weight:800;letter-spacing:3px;color:var(--gold)}
 
 /* 手機點歌 */
@@ -708,18 +715,20 @@ function startTV(){
   const canNet=/github\.io$|^localhost$|^127\./.test(location.hostname);
 
   $('#app').innerHTML='<header><span class="logo">🎤 隨時唱 KTV</span><span class="sp"></span>'+
-    '<span class="small hideS"><span class="dot" id="net"></span>手機點歌房號 <b class="code" style="font-size:16px">'+room+'</b></span>'+
-    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone">📱 手機點歌</button></header>'+
+    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone" title="顯示 QR Code 和房號，讓別人用手機點歌"><span class="dot" id="net"></span>📱 手機點歌</button></header>'+
+    // 按「手機點歌」才跳出來的 QR Code＋房號（原本固定在右下角）
+    '<div id="qrPop" hidden><div class="card"><button class="x" id="qrX" aria-label="關閉">✕</button><div class="hd">📱 用手機點歌</div><div class="q" id="qr"></div>'+
+      '<div class="small">房號</div><div class="code">'+room+'</div><div class="small" id="qrTip">用手機相機掃描 QR Code，就能點歌到這台</div>'+
+      '<button class="link" id="joinOther">要幫別台點歌？輸入房號</button></div></div>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div><video id="localV" playsinline></video>'+
       '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 '+DEV+'裡的歌</div></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">在右邊搜尋，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
       '<div id="fxLayer"></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
       '<div id="fxBar">'+fxButtons()+'</div>'+
       '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
-    '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden>'+
-      '<div id="qrBox"><div class="q" id="qr"></div><div><div>📱 用手機點歌</div><div class="small">掃描 QR Code，或在手機打開這個網址，按「手機點歌」輸入房號</div><div class="code">'+room+'</div></div></div></div></div>';
+    '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden></div></div>';
   if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
-  if(!canNet) $('#qrBox').innerHTML='<div class="small">這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。</div>';
+  if(!canNet) $('#qrTip').textContent='這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。';
 
   // 換房號：通知舊房號的手機，再用新房號重新開始（點歌單保留）
   $('#newRoom').onclick=()=>{
@@ -728,7 +737,12 @@ function startTV(){
     let n; do{ n=String(100000+Math.floor(Math.random()*900000)); }while(n===room);
     save('ktv.room',n); setTimeout(()=>location.reload(),300);
   };
-  $('#asPhone').onclick=()=>{ const c=(prompt('請輸入電視畫面上的 6 位數房號')||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
+  const qrShow=on=>{ $('#qrPop').hidden=!on; };
+  $('#asPhone').onclick=()=>qrShow(true);
+  $('#qrX').onclick=()=>qrShow(false);
+  $('#qrPop').onclick=e=>{ if(e.target.id==='qrPop') qrShow(false); }; // 點旁邊空白處關掉
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') qrShow(false); });
+  $('#joinOther').onclick=()=>{ const c=(prompt('請輸入要點歌那台畫面上的 6 位數房號')||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
 
   // 播放器
   let player=null,ready=false,blockT=0;
@@ -932,7 +946,7 @@ function startTV(){
   }
   fxWarm();
   $('#fxBar').onclick=e=>{ const b=e.target.closest('button'); if(b){ fxFlash(b); fx(b.dataset.fx); } };
-  document.addEventListener('keydown',e=>{ if(e.target.matches('input,textarea')||e.ctrlKey||e.altKey||e.metaKey) return; const i=+e.key-1; if(FX[i]){ fx(FX[i][0]); const b=$('#fxBar [data-fx='+FX[i][0]+']'); if(b) fxFlash(b); } });
+  document.addEventListener('keydown',e=>{ if((e.target.matches&&e.target.matches('input,textarea'))||e.ctrlKey||e.altKey||e.metaKey) return; const i=+e.key-1; if(FX[i]){ fx(FX[i][0]); const b=$('#fxBar [data-fx='+FX[i][0]+']'); if(b) fxFlash(b); } });
   // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
   if(CAN_VR){
     const bc=new BroadcastChannel('ktv-vr'); let vrWin=null,vrOn=false,vrLive=false,vrOld=false; vrIsLive=()=>vrLive; vrFx=n=>bc.postMessage({t:'fx',n});
