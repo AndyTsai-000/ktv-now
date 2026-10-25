@@ -85,6 +85,11 @@ header .sp{flex:1}
 #remote{width:100%;max-width:640px;margin:0 auto;display:flex;flex-direction:column;flex:1;min-height:0}
 #remote .now{margin:12px 16px 0;padding:12px;border-radius:12px;background:var(--panel)}
 #remote .now .t{font-weight:700;font-size:16px}
+#rStage{position:relative;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px}
+#rStage iframe,#rPlayer,#rShield{position:absolute;inset:0;width:100%;height:100%;border:0}
+#rMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;color:#bbb;font-size:14px;background:#000}
+#rMsg:empty{display:none}
+#remote .now .link{background:transparent;border:0;padding:10px 8px;margin:-10px 0;color:var(--dim);font-size:13px;text-decoration:underline}
 #remote .ctl{display:flex;gap:8px;margin-top:10px}
 #remote .ctl button{flex:1;padding:10px 4px}
 #remote .search{padding:12px 16px 6px}
@@ -767,6 +772,7 @@ function startTV(){
   for(const ev of ['pointerdown','keydown']) document.addEventListener(ev,()=>{ if(stuck()) player.playVideo(); });
   function onState(e){
     if(isLocal(S.now)) return; // 正在放電腦裡的歌時，YouTube 的狀態不用管
+    if(e.data===1||e.data===2) sendT(); // 開始播、暫停、重唱後馬上讓手機的畫面對齊
     if(e.data===YT.PlayerState.ENDED) next();
     else if(e.data===YT.PlayerState.PLAYING){ clearTimeout(blockT); if(S.paused){ S.paused=false; changed(); } }
     else if(e.data===YT.PlayerState.PAUSED){ if(!S.paused){ S.paused=true; changed(); } }
@@ -909,7 +915,16 @@ function startTV(){
     changed();
   }
   let mq=null;
-  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300),lists:PL.map(p=>({id:p.id,name:p.name,songs:p.songs.slice(0,200)}))}); }
+  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300),lists:PL.map(p=>({id:p.id,name:p.name,songs:p.songs.slice(0,200)}))}); sendT(); }
+  // 點歌的手機也看得到畫面：每幾秒告訴手機播到第幾秒，手機自己靜音播同一支影片跟著走
+  function sendT(){
+    if(!mq||!S.now) return;
+    if(isLocal(S.now)) return mq.pub(TOPIC+room+'/t',{k:S.now.k||S.now.id,local:1});
+    if(!ready||!player.getVideoData||(player.getVideoData()||{}).video_id!==S.now.id) return;
+    const st=player.getPlayerState(); if(st!==1&&st!==2) return; // 還沒開始播（或廣告中）先不送
+    mq.pub(TOPIC+room+'/t',{k:S.now.k||S.now.id,id:S.now.id,t:+player.getCurrentTime().toFixed(2),p:st===2});
+  }
+  setInterval(()=>{ if(S.now&&!S.paused) sendT(); },3000);
   function changed(){
     save('ktv.state',{now:S.now,q:S.q});
     $('#idle').style.display=S.now?'none':'flex';
@@ -1019,7 +1034,8 @@ function startRemote(){
   const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
     '<input class="name" id="nm" placeholder="你的名字" maxlength="10"></header>'+
-    '<div id="remote"><div class="now"><div class="small">正在唱</div><div class="t" id="nowT">連線中…</div>'+
+    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rMsg"></div></div>'+
+      '<div class="small">正在唱<button class="link" id="bWatch"></button></div><div class="t" id="nowT">連線中…</div>'+
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
       '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div></div>'+
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
@@ -1037,13 +1053,50 @@ function startRemote(){
   $('#bReplay').onclick=()=>pub({t:'replay'});
   $('#bSkip').onclick=()=>pub({t:'skip'});
   $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:clean(nm.value)})) fxFlash(b); };
+  // 手機上的畫面：靜音播跟電視同一支影片，照電視每幾秒送來的秒數對齊（聲音只從電視出來）
+  let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0;
+  function vidMsg(){
+    if(!watch) return '';
+    if(moved||!S.now) return got?'還沒開始唱，點一首吧！':'連線中…';
+    if(isLocal(S.now)||(T&&T.k===(S.now.k||S.now.id)&&T.local)) return '電視正在放電腦裡的歌，畫面只在電視上';
+    if(!T||T.k!==(S.now.k||S.now.id)) return '畫面準備中…';
+    return '';
+  }
+  function syncVid(){
+    $('#rStage').style.display=watch?'':'none';
+    $('#bWatch').textContent=watch?'隱藏畫面':'📺 顯示畫面';
+    const m=vidMsg(); $('#rMsg').textContent=m;
+    if(!watch){ if(yReady) yp.stopVideo(); return; }
+    if(!yp) return loadYT();
+    if(!yReady) return;
+    if(!yp.isMuted()) yp.mute(); // 聲音和音量只歸電視那台管
+    if(m){ if(yp.getPlayerState()===1) yp.pauseVideo(); return; }
+    const target=T.t+(T.p?0:(Date.now()-tAt)/1000),st=yp.getPlayerState();
+    if((yp.getVideoData()||{}).video_id!==T.id){ yp.loadVideoById({videoId:T.id,startSeconds:target+1}); seekAt=Date.now(); return; } // 多 1 秒給它載入
+    if(T.p){ if(st===1||st===3) yp.pauseVideo(); if(Math.abs(yp.getCurrentTime()-target)>1) yp.seekTo(target,true); return; }
+    if(st!==1&&st!==3) yp.playVideo();
+    if(st===1&&Date.now()-seekAt>4000&&Math.abs(yp.getCurrentTime()-target)>1.2){ yp.seekTo(target+0.4,true); seekAt=Date.now(); }
+  }
+  function loadYT(){
+    yp=1;
+    window.onYouTubeIframeAPIReady=()=>{
+      yp=new YT.Player('rPlayer',{width:'100%',height:'100%',playerVars:{autoplay:1,mute:1,controls:0,disablekb:1,rel:0,playsinline:1,modestbranding:1,fs:0,iv_load_policy:3},
+        events:{onReady:()=>{ yp.mute(); yReady=true; syncVid(); }}});
+    };
+    const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
+  }
+  $('#bWatch').onclick=()=>{ watch=!watch; save('ktv.watch',watch); syncVid(); };
+  $('#rShield').onclick=()=>{ if(yReady&&!vidMsg()&&T&&!T.p) yp.playVideo(); }; // 擋住影片本身的點擊，不讓手機自己暫停
+  setInterval(syncVid,1000);
   function draw(){
+    syncVid();
     $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描電視上的 QR Code':S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到電視，請確認電視畫面已打開、房號正確');
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     renderList();
   }
-  const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
-    o=>{ if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
+  const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
+    o=>{ if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
+      if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
       if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   draw(); $('#nowT').textContent='連線中…';
