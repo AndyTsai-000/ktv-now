@@ -882,19 +882,19 @@ function startTV(){
   let player=null,ready=false,blockT=0;
   window.onYouTubeIframeAPIReady=()=>{
     player=new YT.Player('player',{width:'100%',height:'100%',playerVars:{autoplay:1,rel:0,playsinline:1,modestbranding:1,fs:0},
-      events:{onReady:()=>{ ready=true; if(S.now) play(S.now); },onStateChange:onState,onError:onErr}});
+      events:{onReady:()=>{ ready=true; if(S.now){ const p=load('ktv.pos',null); play(S.now,p&&p.k===(S.now.k||S.now.id)&&p.t>5?p.t-2:0); } },onStateChange:onState,onError:onErr}}); // 重新打開：正在唱的那首從上次停下的地方接著唱
   };
   const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
 
   // 還沒開始播時（廣告播放中也是這個狀態）不跳出任何按鈕，只悄悄再叫它播一次；
   // 網頁剛打開、瀏覽器不准自動出聲時，點畫面任何地方就會開始播
   const stuck=()=>{ const st=player&&player.getPlayerState&&player.getPlayerState(); return !!S.now&&(st===-1||st===5); };
-  function play(it){
+  function play(it,at){
     if(isLocal(it)){ playLocal(it); return; }
     stopLocal();
     if(CAN_VR){ $('#keyBox').style.display='inline-flex'; showKey(ytKey); }
     if(!ready) return;
-    player.loadVideoById(it.id);
+    player.loadVideoById(at?{videoId:it.id,startSeconds:at}:it.id);
     clearTimeout(blockT);
     blockT=setTimeout(()=>{ if(stuck()) player.playVideo(); },3000);
   }
@@ -1059,7 +1059,9 @@ function startTV(){
     const st=player.getPlayerState(); if(st!==1&&st!==2) return; // 還沒開始播（或廣告中）先不送
     mq.pub(TOPIC+room+'/t',{k:S.now.k||S.now.id,id:S.now.id,t:+player.getCurrentTime().toFixed(2),p:st===2});
   }
-  setInterval(()=>{ if(S.now&&!S.paused) sendT(); },3000);
+  setInterval(()=>{ if(S.now&&!S.paused){ sendT(); savePos(); } },3000);
+  // 記住唱到第幾秒，關掉網頁再打開可以接著唱
+  function savePos(){ if(isLocal(S.now)||!ready||!player.getVideoData||(player.getVideoData()||{}).video_id!==S.now.id||player.getPlayerState()!==1) return; save('ktv.pos',{k:S.now.k||S.now.id,t:Math.floor(player.getCurrentTime())}); }
   // 每 8 秒告訴點歌的手機「主機還在」；關掉網頁時直接說再見，手機就會離開房間、不再播畫面
   setInterval(()=>{ if(mq) mq.pub(TOPIC+room+'/t',{hb:1}); },8000);
   addEventListener('pagehide',()=>{ if(mq) mq.pub(TOPIC+room+'/s',{bye:1}); });
