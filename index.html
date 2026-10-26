@@ -1019,7 +1019,7 @@ function startTV(){
       if(!S.now&&S.q.length) return next(); }
     else if(c.t==='ldel'){ LIB=LIB.filter(x=>x.id!==c.id); saveLib(); LocalLib.del(c.id).catch(()=>{}); }
     else if(c.t==='hi') return send();
-    else if(c.t==='fx') return fx(c.n,clean(c.by)||'有人');
+    else if(c.t==='fx') return fx(c.n,clean(c.by)||'有人',meOf(c).me);
     else if(c.t==='hdel') save('ktv.hist',hist().filter(h=>h.id!==c.id));
     changed();
   }
@@ -1063,9 +1063,10 @@ function startTV(){
   let vrIsLive=()=>false,vrFx=null;
   // 特效：開著去人聲時交給小視窗播（不然特效也會被去人聲削掉），否則這頁自己播
   let fxCtx=null,fxLast=0; const fxScene=FxScene($('#fxLayer'));
-  function fx(name,by){
+  function fx(name,by,me){
     if(!FX_LEN[name]) return; const now=performance.now(); if(now-fxLast<300) return; fxLast=now;
     fxScene.play(name);
+    if(mq) mq.pub(TOPIC+room+'/t',{fx:name,by:by||myName(),...(me?{me}:{})}); // 點歌的手機畫面上也放同一個特效（聲音只在主機）
     if(by) toast(by+' '+FX.find(x=>x[0]===name)[1]+' '+FX.find(x=>x[0]===name)[2]);
     if(vrIsLive()&&vrFx){ vrFx(name); return; }
     try{ if(!fxCtx) fxCtx=new AudioContext(); if(fxCtx.state==='suspended') fxCtx.resume(); fxPlay(fxCtx,name); }catch(e){}
@@ -1145,7 +1146,7 @@ function startRemote(){
   const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
     '<button id="nmBtn" class="nameBtn" title="改你的名字"></button></header>'+
-    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div></div>'+
+    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div><div id="fxLayer"></div></div>'+
       '<div class="small">正在唱<button class="link" id="bWatch"></button></div><div class="t" id="nowT">連線中…</div>'+
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
       '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div></div>'+
@@ -1164,7 +1165,7 @@ function startRemote(){
   $('#bPause').onclick=()=>pub({t:'pause'});
   $('#bReplay').onclick=()=>pub({t:'replay'});
   $('#bSkip').onclick=()=>pub({t:'skip'});
-  $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:myName()})) fxFlash(b); };
+  $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:myName(),me:ME})) fxFlash(b); };
   // 手機上的畫面：靜音播跟電視同一支影片，照電視每幾秒送來的秒數對齊（聲音只從電視出來）
   let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0,fixN=0,lead=0.5; // lead：跳過去後要緩衝，所以多跳幾秒；會照這支手機實際慢多少自己調
   // 手機擋住自動播放（iPhone 低耗電模式、省流量…）：3 秒還沒播起來，就讓使用者直接點影片本身，那一下才算數
@@ -1213,6 +1214,13 @@ function startRemote(){
   $('#bWatch').onclick=()=>{ watch=!watch; save('ktv.watch',watch); syncVid(); };
   $('#rShield').onclick=()=>{ if(yReady&&!vidMsg()&&T&&!T.p) yp.playVideo(); }; // 擋住影片本身的點擊，不讓手機自己暫停
   setInterval(syncVid,1000);
+  // 有人按特效：手機畫面上也放（看得到畫面時），別人按的再跳一行字
+  const rFx=FxScene($('#fxLayer'));
+  function fxSeen(o){
+    const f=FX.find(x=>x[0]===o.fx); if(!f) return;
+    if(watch) rFx.play(o.fx);
+    if(o.me!==ME) toast((clean(o.by)||'有人')+' '+f[1]+' '+f[2]);
+  }
   function draw(){
     syncVid();
     if(S.now&&!moved){ $('#nowT').innerHTML='<span class="tt">'+esc(S.now.title)+'</span>'+byHTML(S.now); }
@@ -1221,7 +1229,8 @@ function startRemote(){
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
-    o=>{ if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
+    o=>{ if(o&&o.fx){ fxSeen(o); return; }
+      if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
       if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('主機換了新的房號，請重新掃描 QR Code'); return; }
       if(!o||!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
