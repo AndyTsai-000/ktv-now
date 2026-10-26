@@ -1151,9 +1151,9 @@ function startRemote(){
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
       '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div></div>'+
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
-  // 一進房間先問名字（上次的名字已經填好，按一下就好），有名字才能點歌
+  // 這台已經有名字（打開網頁時輸入過）就直接用，沒有才問；有名字才能點歌
   nameShow(); $('#nmBtn').onclick=()=>askName(false);
-  askName(true);
+  if(!myName()) askName(true);
   const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
   UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
   UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); c.by=myName(); c.me=ME; if(!pub(c)) return;
