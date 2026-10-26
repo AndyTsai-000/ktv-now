@@ -181,11 +181,11 @@ body.dragging #side{outline:3px dashed var(--pink);outline-offset:-6px}
 </head>
 <body>
 <div id="app"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 'use strict';
 const API='https://ktv-search.multi-share-api.workers.dev';
-const MQ_URL='wss://broker.emqx.io:8084/mqtt',TOPIC='ktv-now-tw/';
+// 同時連兩台免費伺服器，哪台通就走哪台（2026-10-26 emqx 連不上，手機一直「還沒連上」）
+const MQ_URL=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'],TOPIC='ktv-now-tw/';
 const JOIN=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'').slice(0,6);
 const IS_REMOTE=JOIN.length===6;
 const IS_VR=new URLSearchParams(location.search).get('vr')==='1';
@@ -208,7 +208,19 @@ const isLocal=it=>!!it&&String(it.id||'').startsWith('local:');
 const song=o=>({id:String(o.id||'').slice(0,isLocal(o)?40:11),title:String(o.title||'YouTube 影片').slice(0,120),ch:String(o.ch||'').slice(0,60),len:String(o.len||'').slice(0,10),...(isLocal(o)?{kind:o.kind==='video'?'video':'audio'}:{})});
 
 // 最小的 MQTT 3.1.1 用戶端（跟跨界遊戲區同一套）：只做連線、訂閱、發佈和心跳，斷線自動重連
-function Mq(url,onReady,onMsg,onState){
+// 好幾台一起用：每則訊息帶編號，兩台都收到時只算一次（不然點一首會變兩首）
+function Mq(urls,onReady,onMsg,onState){
+  const subs=new Set(),seen=[],api={up:false};
+  const cs=urls.map(u=>{ const c=Mq1(u,()=>{ for(const t of subs) c.sub(t); onReady(); },o=>{
+      if(o._m){ if(seen.includes(o._m)) return; seen.push(o._m); if(seen.length>300) seen.shift(); delete o._m; }
+      onMsg(o); },()=>{ api.up=cs.some(x=>x.up); onState(api.up); });
+    return c; });
+  api.sub=t=>{ subs.add(t); for(const c of cs) if(c.up) c.sub(t); };
+  api.pub=(t,o)=>{ const m=Object.assign({_m:keyOf()},o); for(const c of cs) if(c.up) c.pub(t,m); };
+  api.close=()=>{ for(const c of cs) c.close(); };
+  return api;
+}
+function Mq1(url,onReady,onMsg,onState){
   const te=new TextEncoder(),td=new TextDecoder(); let ws,buf,ping=0,pid=1,dead=false;
   const str=t=>{ const b=te.encode(t),o=new Uint8Array(b.length+2); o[0]=b.length>>8; o[1]=b.length&255; o.set(b,2); return o; };
   const join=parts=>{ let n=0; for(const a of parts) n+=a.length; const o=new Uint8Array(n); let k=0; for(const a of parts){ o.set(a,k); k+=a.length; } return o; };
@@ -732,7 +744,9 @@ function startTV(){
       '<div id="fxBar">'+fxButtons()+'</div>'+
       '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
     '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden></div></div>';
-  if(window.QRCode){ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); }
+  // QR Code 的程式只有主機要用，晚一點才載，點歌的手機開得比較快
+  const drawQR=()=>{ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); };
+  { const q=document.createElement('script'); q.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'; q.onload=drawQR; document.head.appendChild(q); }
   if(!canNet) $('#qrTip').textContent='這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。';
 
   // 換房號：通知舊房號的手機，再用新房號重新開始（點歌單保留）
@@ -1041,7 +1055,7 @@ function startRemote(){
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
   const nm=$('#nm'); nm.value=load('ktv.name','');
   nm.onchange=()=>save('ktv.name',clean(nm.value));
-  const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上電視，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
+  const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
   UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
   UI.act=c=>{ c.by=clean(nm.value); if(!pub(c)) return;
     if(c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title);
@@ -1067,7 +1081,7 @@ function startRemote(){
     $('#bWatch').textContent=watch?'隱藏畫面':'📺 顯示畫面';
     const m=vidMsg(); $('#rMsg').textContent=m;
     if(!watch){ if(yReady) yp.stopVideo(); return; }
-    if(!yp) return loadYT();
+    if(!yp){ if(!m) loadYT(); return; } // 真的有影片要放才載 YouTube，不跟連線搶網路
     if(!yReady) return;
     if(!yp.isMuted()) yp.mute(); // 聲音和音量只歸電視那台管
     if(m){ if(yp.getPlayerState()===1) yp.pauseVideo(); return; }
