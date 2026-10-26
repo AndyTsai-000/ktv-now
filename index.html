@@ -1071,7 +1071,7 @@ function startRemote(){
   $('#bSkip').onclick=()=>pub({t:'skip'});
   $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:clean(nm.value)})) fxFlash(b); };
   // 手機上的畫面：靜音播跟電視同一支影片，照電視每幾秒送來的秒數對齊（聲音只從電視出來）
-  let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0;
+  let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0,fixN=0;
   // 手機擋住自動播放（iPhone 低耗電模式、省流量…）：3 秒還沒播起來，就讓使用者直接點影片本身，那一下才算數
   const tapMode=on=>$('#rStage').classList.toggle('tap',on);
   function vidMsg(){
@@ -1093,9 +1093,15 @@ function startRemote(){
     const target=T.t+(T.p?0:(Date.now()-tAt)/1000),st=yp.getPlayerState();
     if((yp.getVideoData()||{}).video_id!==T.id){ yp.loadVideoById({videoId:T.id,startSeconds:target+1}); seekAt=stuckAt=Date.now(); return; } // 多 1 秒給它載入
     if(T.p){ stuckAt=0; tapMode(false); if(st===1||st===3) yp.pauseVideo(); if(Math.abs(yp.getCurrentTime()-target)>1) yp.seekTo(target,true); return; }
-    if(st===1){ stuckAt=0; tapMode(false); }
+    // 換歌時重新載入、直接從主機的秒數開始最準；剛點影片播起來的第一首也用這個方法對齊
+    const reload=()=>{ yp.loadVideoById({videoId:T.id,startSeconds:target+1}); seekAt=Date.now(); fixN=0; };
+    if(st===1){ stuckAt=0; if($('#rStage').classList.contains('tap')){ tapMode(false); return reload(); } }
     else if(st!==3){ yp.playVideo(); if(!stuckAt) stuckAt=Date.now(); else if(Date.now()-stuckAt>3000) tapMode(true); }
-    if(st===1&&Date.now()-seekAt>4000&&Math.abs(yp.getCurrentTime()-target)>1.2){ yp.seekTo(target+0.4,true); seekAt=Date.now(); }
+    if(st===1&&Date.now()-seekAt>4000){
+      if(Math.abs(yp.getCurrentTime()-target)<=1.2) fixN=0;
+      else if(++fixN>=2) reload(); // 跳秒數兩次都沒對準（有的手機不吃），改成重新載入
+      else { yp.seekTo(target+0.4,true); seekAt=Date.now(); }
+    }
   }
   function loadYT(){
     yp=1;
