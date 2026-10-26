@@ -87,6 +87,11 @@ header{padding-top:max(10px,env(safe-area-inset-top));padding-left:max(16px,env(
 .it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .it .s .byTag{color:var(--gold);font-weight:700}
 /* 輸入名字的視窗 */
+#gonePop{position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.75)}
+#gonePop[hidden]{display:none}
+#gonePop .card{display:flex;flex-direction:column;gap:10px;width:100%;max-width:340px;padding:22px 20px;border-radius:16px;background:var(--panel);border:1px solid var(--line);text-align:center}
+#gonePop .hd{font-size:18px;font-weight:700}
+#gonePop button{padding:12px;font-size:16px}
 #namePop{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7)}
 #namePop[hidden]{display:none}
 #namePop .card{display:flex;flex-direction:column;gap:10px;width:100%;max-width:340px;padding:22px 20px;border-radius:16px;background:var(--panel);border:1px solid var(--line);text-align:center}
@@ -298,7 +303,12 @@ function Mq(urls,onReady,onMsg,onState){
     return c; });
   api.sub=t=>{ subs.add(t); for(const c of cs) if(c.up) c.sub(t); };
   api.pub=(t,o)=>{ const m=Object.assign({_m:keyOf()},o); for(const c of cs) if(c.up) c.pub(t,m); };
-  api.close=()=>{ for(const c of cs) c.close(); };
+  api.close=()=>{ dead=true; for(const c of cs) c.close(); };
+  // 手機切到別的 App、鎖螢幕回來：背景時連線常被悄悄斷掉，網頁卻不知道，一回來就重新連線、重新對齊主機
+  let dead=false,hidAt=0;
+  const back=()=>{ if(!dead) for(const c of cs) c.reconnect(); };
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') hidAt=Date.now(); else if(hidAt&&Date.now()-hidAt>3000) back(); });
+  addEventListener('pageshow',e=>{ if(e.persisted) back(); }); // 從上一頁／快取回來的網頁
   return api;
 }
 function Mq1(url,onReady,onMsg,onState){
@@ -323,6 +333,8 @@ function Mq1(url,onReady,onMsg,onState){
   api.sub=t=>{ if(ws&&ws.readyState===1) ws.send(pkt(0x82,join([[0,(pid++%250)+1],str(t),[0]]))); };
   api.pub=(t,o)=>{ if(ws&&ws.readyState===1) ws.send(pkt(0x30,join([str(t),te.encode(JSON.stringify(o))]))); };
   api.close=()=>{ dead=true; clearInterval(ping); try{ws.close();}catch(e){} };
+  // 馬上重連：丟掉舊連線（不等它自己逾時），立刻開新的
+  api.reconnect=()=>{ if(dead) return; if(ws){ ws.onclose=ws.onerror=ws.onmessage=null; try{ws.close();}catch(e){} } clearInterval(ping); if(api.up){ api.up=false; onState(false); } open(); };
   open();
   return api;
 }
@@ -1034,6 +1046,9 @@ function startTV(){
     mq.pub(TOPIC+room+'/t',{k:S.now.k||S.now.id,id:S.now.id,t:+player.getCurrentTime().toFixed(2),p:st===2});
   }
   setInterval(()=>{ if(S.now&&!S.paused) sendT(); },3000);
+  // 每 8 秒告訴點歌的手機「主機還在」；關掉網頁時直接說再見，手機就會離開房間、不再播畫面
+  setInterval(()=>{ if(mq) mq.pub(TOPIC+room+'/t',{hb:1}); },8000);
+  addEventListener('pagehide',()=>{ if(mq) mq.pub(TOPIC+room+'/s',{bye:1}); });
   function changed(){
     save('ktv.state',{now:S.now,q:S.q});
     $('#idle').style.display=S.now?'none':'flex';
@@ -1154,7 +1169,7 @@ function startRemote(){
   // 這台已經有名字（打開網頁時輸入過）就直接用，沒有才問；有名字才能點歌
   nameShow(); $('#nmBtn').onclick=()=>askName(false);
   if(!myName()) askName(true);
-  const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
+  const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(gone){ toast('主機已經離開了，等主機重新打開'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
   UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
   UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); c.by=myName(); c.me=ME; if(!pub(c)) return;
     if(c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title);
@@ -1170,8 +1185,19 @@ function startRemote(){
   let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0,fixN=0,lead=0.5; // lead：跳過去後要緩衝，所以多跳幾秒；會照這支手機實際慢多少自己調
   // 手機擋住自動播放（iPhone 低耗電模式、省流量…）：3 秒還沒播起來，就讓使用者直接點影片本身，那一下才算數
   const tapMode=on=>$('#rStage').classList.toggle('tap',on);
+  // 主機離開了（關掉網頁、斷線 25 秒沒消息）：停掉畫面、跳出視窗；主機重新打開就自動接回去
+  let gone=false,hbSeen=false,lastSeen=Date.now();
+  function hostGone(){
+    if(gone||moved) return; gone=true; T=null; S={now:null,q:[],paused:false}; draw(); if(yReady) yp.stopVideo();
+    let el=$('#gonePop'); if(!el){ el=document.createElement('div'); el.id='gonePop'; document.body.appendChild(el); }
+    el.innerHTML='<div class="card"><div class="hd">👋 主機已經離開了</div><div class="small">房號 '+room+' 的主機關掉了，已經離開這個房間。<br>主機重新打開的話，這裡會自動接回去。</div><button class="main" id="goneHome">回首頁</button></div>';
+    el.hidden=false; $('#goneHome').onclick=()=>{ location.href=location.pathname; };
+  }
+  function hostBack(){ if(!gone) return; gone=false; const el=$('#gonePop'); if(el) el.hidden=true; toast('主機回來了，可以繼續點歌！'); }
+  setInterval(()=>{ if(got&&hbSeen&&!gone&&mq.up&&Date.now()-lastSeen>25000) hostGone(); },3000);
   function vidMsg(){
     if(!watch) return '';
+    if(gone) return '主機已經離開了';
     if(moved||!S.now) return got?'還沒開始唱，點一首吧！':'連線中…';
     if(isLocal(S.now)||(T&&T.k===(S.now.k||S.now.id)&&T.local)) return '主機正在放存在主機裡的歌，畫面只在主機上';
     if(!T||T.k!==(S.now.k||S.now.id)) return '畫面準備中…';
@@ -1229,10 +1255,14 @@ function startRemote(){
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
-    o=>{ if(o&&o.fx){ fxSeen(o); return; }
+    o=>{ if(!o) return;
+      if(o.bye){ hostGone(); return; }
+      lastSeen=Date.now();
+      if(o.hb){ hbSeen=true; if(gone) mq.pub(TOPIC+room+'/c',{t:'hi'}); return; } // 主機又出現了：要一份最新狀態
+      if(o.fx){ fxSeen(o); return; }
       if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
       if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('主機換了新的房號，請重新掃描 QR Code'); return; }
-      if(!o||!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
+      if(!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; hostBack(); S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   // 輪到自己點的歌：提醒一下（手機會震動）；下一首是自己的也先說
   let toldNow='',toldNext='';
