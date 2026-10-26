@@ -807,7 +807,7 @@ function renderList(){
       (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、串燒、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
     h=(IS_REMOTE?mineSum(st):'')+(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
-      (st.q.length?st.q.map((s,i)=>rowHTML(s,i,IS_REMOTE&&!isMine(s)?'':(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
+      (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i&&!IS_REMOTE?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+(!IS_REMOTE||isMine(s)?'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>':''),i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
   } else if(tab==='pl'){
     const L=UI.lists(),cur=plCur();
     h='<div class="plBar">'+L.map(p=>'<button class="chip'+(p===cur?' on':'')+'" data-pl="'+esc(p.id)+'">'+esc(p.name)+' <span class="small">'+p.songs.length+'</span></button>').join('')+'<button class="chip" data-a="plNew">＋ 新歌單</button></div>';
@@ -1017,7 +1017,8 @@ function startTV(){
       if(c.top) S.q.unshift(it); else S.q.push(it);
       if(!S.now) return next();
       toast((it.by?it.by+' ':'')+(c.top?'插播':'點了')+'：'+it.title);
-    } else if((c.t==='del'||c.t==='top')&&c.remote&&!mineOf(c,S.q.find(x=>x.k===c.k))) return; // 點歌的手機只能刪、置頂自己點的歌
+    } else if(c.t==='top'&&c.remote) return; // 置頂只有主機可以
+    else if(c.t==='del'&&c.remote&&!mineOf(c,S.q.find(x=>x.k===c.k))) return; // 點歌的手機只能刪自己點的歌
     else if(['skip','pause','replay'].includes(c.t)&&c.remote&&S.now&&!mineOf(c,S.now)) return; // 切歌、暫停、重唱：只有主機和正在唱的人
     else if(c.t==='del') S.q=S.q.filter(x=>x.k!==c.k);
     else if(c.t==='top'){ const i=S.q.findIndex(x=>x.k===c.k); if(i>0) S.q.unshift(S.q.splice(i,1)[0]); }
