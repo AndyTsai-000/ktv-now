@@ -681,16 +681,18 @@ function bindSearch(){
       const ck=c.title+'|'+c.singer; if(cBusy.get(ck)==='busy') return;
       cBusy.set(ck,'busy'); renderList(); // 清單重畫時按鈕也要維持「找伴唱中」，不然會被連點兩次
       findKaraoke(c.title,c.singer).then(r=>{
-        if(r){ cBusy.set(ck,'done'); setTimeout(()=>{ cBusy.delete(ck); renderList(); },4000); } else cBusy.delete(ck); // 「✓ 已點」停 4 秒，免得連點兩次
+        const sent=r&&UI.act({t:'add',s:r.sg,top:a==='cIns'})!==false;
+        if(sent){ cBusy.set(ck,'done'); setTimeout(()=>{ cBusy.delete(ck); renderList(); },4000); } else cBusy.delete(ck); // 「✓ 已點」停 4 秒，免得連點兩次
         renderList();
-        if(r){ UI.act({t:'add',s:r.sg,top:a==='cIns'}); if(!r.karaoke) toast('「'+c.title+'」還沒有伴唱版，先放原版，可以按 🎤 去人聲',5000); }
+        if(sent){ if(!r.karaoke) toast('「'+c.title+'」還沒有伴唱版，先放原版，可以按 🎤 去人聲',5000); }
+        else if(r){} // 找到了但沒送出去：上面已經跳過提示
         else { toast('找不到「'+c.title+'」原唱的伴唱版或原曲，幫你列出搜尋結果自己挑'); const q=c.title+' '+String(c.singer).split(/[、．,，]/)[0]; $('#q').value=q; doSearch(q); }
       });
       return;
     }
     if(a==='add'||a==='ins'){
       const src=tab==='hist'?hist():tab==='local'?UI.lib():tab==='pl'?(plCur()||{songs:[]}).songs:results; const s=src&&src[i]; if(!s) return;
-      UI.act({t:'add',s:song(s),top:a==='ins'});
+      if(UI.act({t:'add',s:song(s),top:a==='ins'})===false) return; // 沒送出去（主機離開、還沒連上）就不要顯示已點
       b.textContent='✓ 已點'; b.disabled=true;
     } else if(a==='del'||a==='top') UI.act({t:a,k:b.dataset.k});
     else if(a==='hdel') UI.act({t:'hdel',id:b.dataset.id});
@@ -699,7 +701,7 @@ function bindSearch(){
     else if(a==='plPick'){ const s=hist()[i]; if(s) addToList(b,song(s)); }
     else if(b.dataset.pl&&!a){ plSel=b.dataset.pl; save('ktv.plSel',plSel); renderList(); }
     else if(a==='plNew'){ const name=(prompt('新歌單的名字（例如：小明的歌）')||'').trim(); if(name) UI.act({t:'plNew',name}); }
-    else if(a==='plAll'){ UI.act({t:'plAll',pl:b.dataset.pl}); b.textContent='✓ 已全部點歌'; b.disabled=true; }
+    else if(a==='plAll'){ if(UI.act({t:'plAll',pl:b.dataset.pl})===false) return; b.textContent='✓ 已全部點歌'; b.disabled=true; }
     else if(a==='plRm'){ const p=plCur(); if(p&&confirm('要刪除歌單「'+p.name+'」嗎？（歌單裡的歌不會從別的地方消失）')) UI.act({t:'plRm',pl:p.id}); }
     else if(a==='plDel') UI.act({t:'plDel',pl:b.dataset.pl,id:b.dataset.id});
   };
@@ -775,7 +777,14 @@ function mineSum(st){
   const n=st.q.filter(isMine).length,i=st.q.findIndex(isMine);
   if(isMine(st.now)) return '<div class="mineSum">🎤 現在輪到你唱了！'+(n?'你後面還點了 '+n+' 首':'')+'</div>';
   if(!n) return '';
-  return '<div class="mineSum">⭐ 你點了 '+n+' 首，'+(i===0?'下一首就輪到你':'前面還有 '+i+' 首')+'</div>';
+  return '<div class="mineSum">⭐ 你點了 '+n+' 首，'+(i===0?'下一首就輪到你':'前面還有 '+i+' 首')+waitText(st,i)+'</div>';
+}
+// 大概還要等多久：正在唱的剩下的時間＋前面每首歌的長度（有一首不知道長度就不估）
+const secOf=len=>{ const p=String(len||'').split(':').map(Number); return p.length>=2&&p.every(x=>x>=0)?p.reduce((a,x)=>a*60+x,0):0; };
+function waitText(st,i){
+  const L=[st.now,...st.q.slice(0,i)].map(x=>secOf(x&&x.len)); if(!st.now||L.some(x=>!x)) return '';
+  const w=Math.max(0,L[0]-(UI.elapsed?UI.elapsed():0))+L.slice(1).reduce((a,x)=>a+x,0),m=Math.round(w/60);
+  return m<1?'，不到 1 分鐘':'，大約 '+m+' 分鐘';
 }
 function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
@@ -1170,8 +1179,9 @@ function startRemote(){
   nameShow(); $('#nmBtn').onclick=()=>askName(false);
   if(!myName()) askName(true);
   const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(gone){ toast('主機已經離開了，等主機重新打開'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
+  UI.elapsed=()=>{ try{ return T&&S.now&&T.k===(S.now.k||S.now.id)&&T.t?T.t+(T.p?0:(Date.now()-tAt)/1000):0; }catch(e){ return 0; } }; // 正在唱的唱到第幾秒（T 在下面才宣告）
   UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
-  UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); c.by=myName(); c.me=ME; if(!pub(c)) return;
+  UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); c.by=myName(); c.me=ME; if(!pub(c)) return false;
     if(c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title);
     else if(c.t==='plAdd') toast('已加入歌單：'+c.s.title);
     else if(c.t==='plNew') toast('新增了歌單「'+c.name+'」');
