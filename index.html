@@ -1072,7 +1072,7 @@ function startRemote(){
   function vidMsg(){
     if(!watch) return '';
     if(moved||!S.now) return got?'還沒開始唱，點一首吧！':'連線中…';
-    if(isLocal(S.now)||(T&&T.k===(S.now.k||S.now.id)&&T.local)) return '電視正在放電腦裡的歌，畫面只在電視上';
+    if(isLocal(S.now)||(T&&T.k===(S.now.k||S.now.id)&&T.local)) return '主機正在放電腦裡的歌，畫面只在主機上';
     if(!T||T.k!==(S.now.k||S.now.id)) return '畫面準備中…';
     return '';
   }
@@ -1104,16 +1104,17 @@ function startRemote(){
   setInterval(syncVid,1000);
   function draw(){
     syncVid();
-    $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描電視上的 QR Code':S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到電視，請確認電視畫面已打開、房號正確');
+    $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描主機上的 QR Code':S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到主機：請把主機的網頁重新整理一次，並確認房號正確');
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
     o=>{ if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
-      if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('電視換了新的房號，請重新掃描 QR Code'); return; }
+      if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('主機換了新的房號，請重新掃描 QR Code'); return; }
       if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   draw(); $('#nowT').textContent='連線中…';
+  setInterval(()=>{ if(!got&&!moved&&mq.up) mq.pub(TOPIC+room+'/c',{t:'hi'}); },4000); // 主機晚打開或剛重新整理，也接得上
   window.__ktv={S:()=>S,mq};
 }
 
