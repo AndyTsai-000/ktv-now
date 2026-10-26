@@ -35,6 +35,7 @@ header{padding-top:max(10px,env(safe-area-inset-top));padding-left:max(16px,env(
 .tipBar .tx{flex:1;min-width:0}
 .tipBar button{padding:6px 12px;white-space:nowrap}
 .tipBar .x{background:transparent;padding:6px 8px;color:var(--dim);min-width:36px;min-height:36px}
+.locked{opacity:.35}
 .it.mine{background:rgba(255,79,163,.12);border-radius:10px}
 .mineTag{color:var(--pink);font-weight:700}
 .mineSum{padding:8px 4px 10px;color:var(--gold);font-size:14px}
@@ -806,7 +807,7 @@ function renderList(){
       (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、串燒、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
     h=(IS_REMOTE?mineSum(st):'')+(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
-      (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
+      (st.q.length?st.q.map((s,i)=>rowHTML(s,i,IS_REMOTE&&!isMine(s)?'':(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
   } else if(tab==='pl'){
     const L=UI.lists(),cur=plCur();
     h='<div class="plBar">'+L.map(p=>'<button class="chip'+(p===cur?' on':'')+'" data-pl="'+esc(p.id)+'">'+esc(p.name)+' <span class="small">'+p.songs.length+'</span></button>').join('')+'<button class="chip" data-a="plNew">＋ 新歌單</button></div>';
@@ -1007,6 +1008,7 @@ function startTV(){
   let vrSync=()=>{},vrRefresh=localVrBtn;
   $('#bVr').onclick=()=>{ if(!isLocal(S.now)||!LA) return; const v=!LA.vr.on; LA.vr.setOn(v); vrRemember(v); vrRefresh(); if(v) toast('🎤 去人聲開始了（換下一首會先回原音）'); };
   const meOf=c=>/^[a-z0-9]{8,16}$/.test(c.me||'')?{me:c.me}:{}; // 點歌的手機代號，那支手機才認得出「我點的」
+  const mineOf=(c,it)=>!!it&&!!it.me&&it.me===meOf(c).me;
   function handle(c){
     if(!c||!c.t) return;
     if(c.t==='add'&&c.s&&(/^[A-Za-z0-9_-]{11}$/.test(c.s.id)||(isLocal(c.s)&&LIB.some(x=>x.id===c.s.id)))){
@@ -1015,7 +1017,9 @@ function startTV(){
       if(c.top) S.q.unshift(it); else S.q.push(it);
       if(!S.now) return next();
       toast((it.by?it.by+' ':'')+(c.top?'插播':'點了')+'：'+it.title);
-    } else if(c.t==='del') S.q=S.q.filter(x=>x.k!==c.k);
+    } else if((c.t==='del'||c.t==='top')&&c.remote&&!mineOf(c,S.q.find(x=>x.k===c.k))) return; // 點歌的手機只能刪、置頂自己點的歌
+    else if(['skip','pause','replay'].includes(c.t)&&c.remote&&S.now&&!mineOf(c,S.now)) return; // 切歌、暫停、重唱：只有主機和正在唱的人
+    else if(c.t==='del') S.q=S.q.filter(x=>x.k!==c.k);
     else if(c.t==='top'){ const i=S.q.findIndex(x=>x.k===c.k); if(i>0) S.q.unshift(S.q.splice(i,1)[0]); }
     else if(c.t==='skip') return next();
     else if(c.t==='pause'){
@@ -1161,7 +1165,7 @@ function startTV(){
     // 分頁被分享聲音時，瀏覽器只讓網頁放大到分頁大小，要再按 F11
     if(vrIsLive()) setTimeout(()=>toast('開著去人聲時，再按鍵盤 F11 才是全螢幕（離開也按 F11）',6000),300); } else if(st.webkitRequestFullscreen) st.webkitRequestFullscreen(); };
   changed();
-  if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },handle,up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
+  if(canNet) mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/c'); send(); },c=>{ if(c&&typeof c==='object') handle(Object.assign(c,{remote:1})); },up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   window.__ktv={S,handle,room,player:()=>player,fx,fxScene};
 }
 
@@ -1187,9 +1191,9 @@ function startRemote(){
     else if(c.t==='plNew') toast('新增了歌單「'+c.name+'」');
     else if(c.t==='plAll') toast('整個歌單都點好了'); };
   bindSearch();
-  $('#bPause').onclick=()=>pub({t:'pause'});
-  $('#bReplay').onclick=()=>pub({t:'replay'});
-  $('#bSkip').onclick=()=>pub({t:'skip'});
+  const canCtl=()=>!S.now||isMine(S.now);
+  const ctl=t=>()=>{ if(!canCtl()) return toast('只有主機和正在唱的人可以暫停、重唱、切歌'); pub({t,me:ME}); };
+  $('#bPause').onclick=ctl('pause'); $('#bReplay').onclick=ctl('replay'); $('#bSkip').onclick=ctl('skip');
   $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:myName(),me:ME})) fxFlash(b); };
   // 手機上的畫面：靜音播跟電視同一支影片，照電視每幾秒送來的秒數對齊（聲音只從電視出來）
   let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0,fixN=0,lead=0.5; // lead：跳過去後要緩衝，所以多跳幾秒；會照這支手機實際慢多少自己調
@@ -1262,6 +1266,7 @@ function startRemote(){
     if(S.now&&!moved){ $('#nowT').innerHTML='<span class="tt">'+esc(S.now.title)+'</span>'+byHTML(S.now); }
     else $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描主機上的 QR Code':(got?'目前沒有播放，點一首吧！':'連不到主機：請把主機的網頁重新整理一次，並確認房號正確');
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
+    for(const id of ['#bPause','#bReplay','#bSkip']) $(id).classList.toggle('locked',!canCtl());
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
