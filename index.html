@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>隨時唱 KTV</title>
 <meta name="theme-color" content="#120b24">
+<!-- 加到主畫面：像 App 一樣全螢幕打開 -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="隨時唱">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%A4%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#120b24;--panel:#1d1436;--panel2:#271b47;--line:#3a2b63;--text:#f3eefe;--dim:#a99cc9;--pink:#ff4fa3;--cyan:#33e1ff;--gold:#ffd166}
@@ -21,6 +28,16 @@ button:disabled{opacity:.4;cursor:default;filter:none}
 .logo{font-weight:800;font-size:20px;letter-spacing:1px;background:linear-gradient(90deg,var(--pink),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
 header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
 header .sp{flex:1}
+/* 從主畫面打開（沒有網址列）時，避開瀏海和上方狀態列 */
+header{padding-top:max(10px,env(safe-area-inset-top));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+/* 上方的小提示列：回到上次的房號、加到主畫面 */
+.tipBar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:14px;flex:none}
+.tipBar .tx{flex:1;min-width:0}
+.tipBar button{padding:6px 12px;white-space:nowrap}
+.tipBar .x{background:transparent;padding:6px 8px;color:var(--dim);min-width:36px;min-height:36px}
+.it.mine{background:rgba(255,79,163,.12);border-radius:10px}
+.mineTag{color:var(--pink);font-weight:700}
+.mineSum{padding:8px 4px 10px;color:var(--gold);font-size:14px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#777;margin-right:6px;vertical-align:middle}
 .dot.on{background:#4ade80;box-shadow:0 0 6px #4ade80}
 .small{font-size:13px;color:var(--dim)}
@@ -45,7 +62,10 @@ header .sp{flex:1}
 /* 主機畫面的提示放左上角：伴唱歌詞都在影片下半部，不要擋到；右上角是「下一首」 */
 #stage #toast{top:14px;bottom:auto;left:14px;transform:none;max-width:45%;text-align:left}
 #bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#nowT{flex:1;min-width:160px;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 歌名太長時，點歌人的名字自己換到下一行，一定看得到 */
+#nowT{flex:1;min-width:160px;font-size:18px;font-weight:700;display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px}
+#nowT .tt{min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#nowT .by{white-space:nowrap;font-weight:700;font-size:.85em;color:var(--gold)}
 #nowT .small{font-weight:400}
 .ctl button{font-size:16px;padding:10px 16px}
 
@@ -65,6 +85,16 @@ header .sp{flex:1}
 .it .tx{flex:1;min-width:0}
 .it .t{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35;word-break:break-all}
 .it .s{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .s .byTag{color:var(--gold);font-weight:700}
+/* 輸入名字的視窗 */
+#namePop{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7)}
+#namePop[hidden]{display:none}
+#namePop .card{display:flex;flex-direction:column;gap:10px;width:100%;max-width:340px;padding:22px 20px;border-radius:16px;background:var(--panel);border:1px solid var(--line);text-align:center}
+#namePop .hd{font-size:18px;font-weight:700}
+#namePop input{padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:18px;text-align:center}
+#namePop .main{padding:12px;font-size:16px}
+#namePop .err{color:var(--pink);font-size:13px;min-height:18px}
+.nameBtn{white-space:nowrap;max-width:9em;overflow:hidden;text-overflow:ellipsis}
 .it button{padding:6px 10px;font-size:13px;flex:none}
 .it button:not(.main),.plTools button:not(.main){background:var(--panel);border:1px solid var(--line)} /* 跟清單底色一樣時看不出是按鈕 */
 .it .n{width:22px;text-align:center;color:var(--gold);font-weight:700;flex:none}
@@ -169,6 +199,12 @@ body.dragging #side{outline:3px dashed var(--pink);outline-offset:-6px}
   #side{border-left:0;border-top:1px solid var(--line);height:70vh}
 }
 @media (max-width:520px){
+  /* 手機標題列放不下：換房號移到 QR Code 視窗裡，按鈕縮小一點 */
+  header{gap:6px;padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  header .logo{font-size:17px}
+  header button{padding:6px 10px;font-size:14px}
+  .nameBtn{max-width:6em}
+  #newRoom{display:none}
   header{padding:10px 12px;gap:8px}
   .hideS{display:none}
   header button{padding:6px 10px;font-size:13px;white-space:nowrap}
@@ -212,6 +248,43 @@ const thumb=id=>'https://i.ytimg.com/vi/'+id+'/mqdefault.jpg';
 const keyOf=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const ytId=s=>{ const m=String(s).match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/); return m?m[1]:null; };
 const clean=v=>String(v==null?'':v).replace(/[<>&"'\\]/g,'').trim().slice(0,10);
+// 這台手機的代號：用來認出「我點的歌」（名字可能重複或沒填）
+const ME=(()=>{ let m=load('ktv.me',''); if(!/^[a-z0-9]{8,16}$/.test(m)){ m=Math.random().toString(36).slice(2,12).padEnd(10,'0'); save('ktv.me',m); } return m; })();
+const isMine=s=>IS_REMOTE&&!!s&&s.me===ME;
+// 加到主畫面：Android 的 Chrome 會給一個可以直接跳安裝的事件；iPhone／iPad 要教他用 Safari 的「分享」
+const STANDALONE=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const IS_IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
+let installEv=null;
+addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEv=e; });
+addEventListener('appinstalled',()=>{ installEv=null; save('ktv.noInstall',true); const t=$('#tipBar'); if(t) t.remove(); });
+// 標題列下面的一行小提示；按 ✕ 會呼叫 onClose
+function tipBar(html,btns,onClose){
+  let el=$('#tipBar'); if(el) el.remove();
+  el=document.createElement('div'); el.id='tipBar'; el.className='tipBar';
+  el.innerHTML='<span class="tx">'+html+'</span>'+btns.map((b,i)=>'<button data-i="'+i+'"'+(b[2]?' class="main"':'')+'>'+esc(b[0])+'</button>').join('')+'<button class="x" data-i="x" aria-label="關閉">✕</button>';
+  const h=$('#app header'); if(!h) return; h.after(el);
+  el.onclick=e=>{ const b=e.target.closest('button'); if(!b) return; if(b.dataset.i==='x'){ el.remove(); if(onClose) onClose(); } else btns[+b.dataset.i][1](); };
+}
+function offerInstall(){
+  if(!IS_MOBILE||STANDALONE||load('ktv.noInstall',false)||$('#tipBar')) return;
+  const no=()=>save('ktv.noInstall',true);
+  if(installEv) tipBar('📲 把「隨時唱」加到主畫面，下次一點就開',[['加到主畫面',()=>{ const e=installEv; installEv=null; e.prompt(); e.userChoice.then(()=>{ const t=$('#tipBar'); if(t) t.remove(); }).catch(()=>{}); },1]],no);
+  else if(IS_IOS) tipBar('📲 把「隨時唱」加到主畫面，下次一點就開',[['怎麼加',()=>alert('1. 用 Safari 打開這個網頁（LINE 裡面開的不行）\n2. 按「分享」按鈕 ⬆️（iPhone 在下方，iPad 在上方）\n3. 往下找「加入主畫面」'),1]],no);
+}
+// 名字：主機和點歌的手機都要有，點的歌會顯示「由 ○○ 點」
+const myName=()=>clean(load('ktv.name',''));
+const nameShow=()=>{ const b=$('#nmBtn'); if(b) b.textContent='👤 '+(myName()||'輸入名字'); };
+function askName(must,then){ // must：一定要填才能關
+  let el=$('#namePop'); if(!el){ el=document.createElement('div'); el.id='namePop'; document.body.appendChild(el); }
+  el.innerHTML='<div class="card"><div class="hd">👤 請輸入你的名字</div><div class="small">點歌時大家都會看到是誰點的</div>'+
+    '<input id="nmIn" maxlength="10" placeholder="例如：小明" autocomplete="nickname" enterkeyhint="done"><div class="err" id="nmErr"></div>'+
+    '<button class="main" id="nmOk">'+(IS_REMOTE?'好了，開始點歌':'好了')+'</button>'+(must?'':'<button id="nmNo">取消</button>')+'</div>';
+  el.hidden=false; const inp=$('#nmIn'); inp.value=myName(); setTimeout(()=>{ try{ inp.focus(); inp.select(); }catch(e){} },60);
+  const ok=()=>{ const v=clean(inp.value); if(!v){ $('#nmErr').textContent='名字不能空白'; inp.focus(); return; } save('ktv.name',v); el.hidden=true; nameShow(); if(then) then(v); };
+  $('#nmOk').onclick=ok; inp.onkeydown=e=>{ if(e.key==='Enter') ok(); };
+  if(!must) $('#nmNo').onclick=()=>{ el.hidden=true; };
+}
+const byHTML=s=>s&&s.by?'<span class="by">'+esc(s.by)+' 點的</span>':'';
 const isLocal=it=>!!it&&String(it.id||'').startsWith('local:');
 const song=o=>({id:String(o.id||'').slice(0,isLocal(o)?40:11),title:String(o.title||'YouTube 影片').slice(0,120),ch:String(o.ch||'').slice(0,60),len:String(o.len||'').slice(0,10),...(isLocal(o)?{kind:o.kind==='video'?'video':'audio'}:{})});
 
@@ -681,8 +754,16 @@ function addToList(anchor,sg){
 }
 let VR_IDS=new Set(load('ktv.vrSongs',[])); // 開過去人聲的歌（影片代號）
 function rowHTML(s,i,btns,num){
-  return '<div class="it">'+(num?'<span class="n">'+num+'</span>':'')+(isLocal(s)?'<div class="ph">'+(s.kind==='video'?'🎬':'🎵')+'</div>':'<img loading="lazy" src="'+thumb(esc(s.id))+'" alt="">')+
-    '<div class="tx"><div class="t" title="'+esc(s.title)+'">'+esc(s.title)+'</div><div class="s">'+esc([VR_IDS.has(s.id)?'🎤 去人聲':'',s.ch,s.len,s.by?'由 '+s.by+' 點':''].filter(Boolean).join('・'))+'</div></div>'+btns+'</div>';
+  const mine=isMine(s);
+  return '<div class="it'+(mine?' mine':'')+'">'+(num?'<span class="n">'+num+'</span>':'')+(isLocal(s)?'<div class="ph">'+(s.kind==='video'?'🎬':'🎵')+'</div>':'<img loading="lazy" src="'+thumb(esc(s.id))+'" alt="">')+
+    '<div class="tx"><div class="t" title="'+esc(s.title)+'">'+esc(s.title)+'</div><div class="s">'+(mine?'<span class="mineTag">⭐ 我點的</span>・':'')+(s.by?'<span class="byTag">由 '+esc(s.by)+' 點</span>・':'')+esc([VR_IDS.has(s.id)?'🎤 去人聲':'',s.ch,s.len].filter(Boolean).join('・'))+'</div></div>'+btns+'</div>';
+}
+// 點歌的手機：已點最上面告訴他自己點的歌排到哪裡
+function mineSum(st){
+  const n=st.q.filter(isMine).length,i=st.q.findIndex(isMine);
+  if(isMine(st.now)) return '<div class="mineSum">🎤 現在輪到你唱了！'+(n?'你後面還點了 '+n+' 首':'')+'</div>';
+  if(!n) return '';
+  return '<div class="mineSum">⭐ 你點了 '+n+' 首，'+(i===0?'下一首就輪到你':'前面還有 '+i+' 首')+'</div>';
 }
 function renderList(){
   const st=UI.state(),el=$('#list'); if(!el) return;
@@ -703,7 +784,7 @@ function renderList(){
     else h=backBar()+results.map((s,i)=>(i===maybeAt?'<div class="maybeHd">以下標題只寫「KTV」，可能有原唱（可以按 🎤 去人聲）</div>':'')+rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('')+
       (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、串燒、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
-    h=(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
+    h=(IS_REMOTE?mineSum(st):'')+(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
       (st.q.length?st.q.map((s,i)=>rowHTML(s,i,(i?'<button data-a="top" data-k="'+esc(s.k)+'">置頂</button>':'')+'<button data-a="del" data-k="'+esc(s.k)+'">刪除</button>',i+1)).join(''):'<div class="empty">還沒有排隊的歌</div>');
   } else if(tab==='pl'){
     const L=UI.lists(),cur=plCur();
@@ -740,11 +821,11 @@ function startTV(){
   const canNet=/github\.io$|^localhost$|^127\./.test(location.hostname);
 
   $('#app').innerHTML='<header><span class="logo">🎤 隨時唱 KTV</span><span class="sp"></span>'+
-    '<button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone" title="顯示 QR Code 和房號，讓別人用手機點歌"><span class="dot" id="net"></span>📱 手機點歌</button></header>'+
+    '<button id="nmBtn" class="nameBtn" title="改你的名字"></button><button id="newRoom" title="換一個新的房號，舊房號的手機就不能再點歌">🔄 換房號</button><button id="asPhone" title="顯示 QR Code 和房號，讓別人用手機點歌"><span class="dot" id="net"></span>📱 手機點歌</button></header>'+
     // 按「手機點歌」才跳出來的 QR Code＋房號（原本固定在右下角）
     '<div id="qrPop" hidden><div class="card"><button class="x" id="qrX" aria-label="關閉">✕</button><div class="hd">📱 用手機點歌</div><div class="q" id="qr"></div>'+
       '<div class="small">房號</div><div class="code">'+room+'</div><div class="small" id="qrTip">用手機相機掃描 QR Code，就能點歌到這台</div>'+
-      '<button class="link" id="joinOther">要幫別台點歌？輸入房號</button></div></div>'+
+      '<button class="link" id="newRoom2">🔄 換一個新的房號</button><button class="link" id="joinOther">要幫別台點歌？輸入房號</button></div></div>'+
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div><video id="localV" playsinline></video>'+
       '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 '+DEV+'裡的歌</div></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">搜尋歌名或歌手，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
@@ -758,6 +839,7 @@ function startTV(){
   if(!canNet) $('#qrTip').textContent='這個頁面是預覽頁，手機點歌和播放可能被擋住，請改用正式網址。';
 
   // 換房號：通知舊房號的手機，再用新房號重新開始（點歌單保留）
+  $('#newRoom2').onclick=()=>$('#newRoom').onclick();
   $('#newRoom').onclick=()=>{
     if(!confirm('要換一個新的房號嗎？\n換了以後，舊房號的手機就不能再點歌，要重新掃描 QR Code。')) return;
     if(mq) mq.pub(TOPIC+room+'/s',{moved:true});
@@ -769,7 +851,10 @@ function startTV(){
   $('#qrX').onclick=()=>qrShow(false);
   $('#qrPop').onclick=e=>{ if(e.target.id==='qrPop') qrShow(false); }; // 點旁邊空白處關掉
   document.addEventListener('keydown',e=>{ if(e.key==='Escape') qrShow(false); });
-  $('#joinOther').onclick=()=>{ const c=(prompt('請輸入要點歌那台畫面上的 6 位數房號')||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
+  const last=load('ktv.lastRoom',null),lastR=last&&/^\d{6}$/.test(last.r)&&last.r!==room&&Date.now()-last.at<7*864e5?last.r:'';
+  if(lastR&&load('ktv.role','')==='remote') tipBar('上次在房號 <b>'+lastR+'</b> 點歌',[['回去點歌',()=>{ location.href=location.pathname+'?r='+lastR; },1]],()=>save('ktv.role','host'));
+  else setTimeout(offerInstall,20000);
+  $('#joinOther').onclick=()=>{ const c=(prompt('請輸入要點歌那台畫面上的 6 位數房號',lastR)||'').replace(/\D/g,''); if(c.length===6) location.href=location.pathname+'?r='+c; else if(c) alert('房號是 6 位數字'); };
 
   // 播放器
   let player=null,ready=false,blockT=0;
@@ -887,6 +972,7 @@ function startTV(){
 
   function next(){
     S.now=S.q.shift()||null; S.paused=false;
+    if(S.now&&load('ktv.role','')!=='host'){ save('ktv.role','host'); const t=$('#tipBar'); if(t&&/房號/.test(t.textContent)) t.remove(); }
     if(S.now){
       const H=hist().filter(h=>h.id!==S.now.id); H.unshift(song(S.now)); save('ktv.hist',H.slice(0,60));
       play(S.now); vrSync();
@@ -899,11 +985,12 @@ function startTV(){
   const localVrBtn=()=>{ const b=$('#bVr'); if(!isLocal(S.now)||!LA) return; b.classList.toggle('on',LA.vr.on); b.textContent=LA.vr.on?'🎤 去人聲：開':'🎤 去人聲：關（按一下開）'; };
   let vrSync=()=>{},vrRefresh=localVrBtn;
   $('#bVr').onclick=()=>{ if(!isLocal(S.now)||!LA) return; const v=!LA.vr.on; LA.vr.setOn(v); vrRemember(v); vrRefresh(); if(v) toast('🎤 去人聲開始了（換下一首會先回原音）'); };
+  const meOf=c=>/^[a-z0-9]{8,16}$/.test(c.me||'')?{me:c.me}:{}; // 點歌的手機代號，那支手機才認得出「我點的」
   function handle(c){
     if(!c||!c.t) return;
     if(c.t==='add'&&c.s&&(/^[A-Za-z0-9_-]{11}$/.test(c.s.id)||(isLocal(c.s)&&LIB.some(x=>x.id===c.s.id)))){
       if(isLocal(c.s)) c.s=Object.assign({},LIB.find(x=>x.id===c.s.id));
-      const it=Object.assign(song(c.s),{k:keyOf(),by:clean(c.by)});
+      const it=Object.assign(song(c.s),{k:keyOf(),by:clean(c.by)},meOf(c));
       if(c.top) S.q.unshift(it); else S.q.push(it);
       if(!S.now) return next();
       toast((it.by?it.by+' ':'')+(c.top?'插播':'點了')+'：'+it.title);
@@ -927,7 +1014,7 @@ function startTV(){
     else if(c.t==='plRm'){ if(PL.length<=1) return toast('至少要留一個歌單'); PL=PL.filter(x=>x.id!==c.pl); savePL(); }
     else if(c.t==='plAll'){
       const p=PL.find(x=>x.id===c.pl); if(!p) return; let n=0;
-      for(const sg of p.songs){ if(isLocal(sg)&&!LIB.some(x=>x.id===sg.id)) continue; S.q.push(Object.assign(song(sg),{k:keyOf(),by:clean(c.by)})); n++; }
+      for(const sg of p.songs){ if(isLocal(sg)&&!LIB.some(x=>x.id===sg.id)) continue; S.q.push(Object.assign(song(sg),{k:keyOf(),by:clean(c.by)},meOf(c))); n++; }
       toast('「'+p.name+'」的 '+n+' 首歌都點好了');
       if(!S.now&&S.q.length) return next(); }
     else if(c.t==='ldel'){ LIB=LIB.filter(x=>x.id!==c.id); saveLib(); LocalLib.del(c.id).catch(()=>{}); }
@@ -950,11 +1037,11 @@ function startTV(){
   function changed(){
     save('ktv.state',{now:S.now,q:S.q});
     $('#idle').style.display=S.now?'none':'flex';
-    $('#nowT').innerHTML=S.now?'♪ '+esc(S.now.title)+(S.now.by?' <span class="small">・'+esc(S.now.by)+' 點的</span>':''):'<span class="small">目前沒有播放</span>';
+    $('#nowT').innerHTML=S.now?'<span class="tt">♪ '+esc(S.now.title)+'</span>'+byHTML(S.now):'<span class="small">目前沒有播放</span>';
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     $('#bPause').disabled=$('#bReplay').disabled=!S.now; $('#bSkip').disabled=!S.now&&!S.q.length;
     awake(!!S.now);
-    const n=$('#nextUp'); n.textContent=S.q[0]?'下一首：'+S.q[0].title:''; n.classList.toggle('has',!!S.q[0]);
+    const n=$('#nextUp'); n.textContent=S.q[0]?'下一首：'+S.q[0].title+(S.q[0].by?'（'+S.q[0].by+' 點）':''):''; n.classList.toggle('has',!!S.q[0]);
     renderList(); send(); vrRefresh();
   }
   // 唱歌時螢幕不要自己變暗、鎖住（手機、筆電放著唱很常遇到）；切到別的程式回來要重新要一次
@@ -965,7 +1052,9 @@ function startTV(){
     else if(!on&&lock&&lock.release){ lock.release().catch(()=>{}); lock=null; }
   }
   document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') awake(wantAwake); });
-  UI.state=()=>S; UI.act=c=>handle(Object.assign({by:''},c));
+  UI.state=()=>S; UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); handle(Object.assign({by:myName()},c)); };
+  nameShow(); $('#nmBtn').onclick=()=>askName(false);
+  if(!myName()) askName(true); // 主機也要有名字，自己點的歌才知道是誰點的
   bindSearch();
   $('#bPause').onclick=()=>handle({t:'pause'});
   $('#bReplay').onclick=()=>handle({t:'replay'});
@@ -1055,17 +1144,18 @@ function startTV(){
 function startRemote(){
   const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
-    '<input class="name" id="nm" placeholder="你的名字" maxlength="10"></header>'+
+    '<button id="nmBtn" class="nameBtn" title="改你的名字"></button></header>'+
     '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div></div>'+
       '<div class="small">正在唱<button class="link" id="bWatch"></button></div><div class="t" id="nowT">連線中…</div>'+
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
       '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div></div>'+
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
-  const nm=$('#nm'); nm.value=load('ktv.name','');
-  nm.onchange=()=>save('ktv.name',clean(nm.value));
+  // 一進房間先問名字（上次的名字已經填好，按一下就好），有名字才能點歌
+  nameShow(); $('#nmBtn').onclick=()=>askName(false);
+  askName(true);
   const pub=c=>{ if(moved){ toast('房號已經停用，請重新掃描 QR Code'); return false; } if(!mq||!mq.up){ toast('還沒連上主機，請稍等'); return false; } mq.pub(TOPIC+room+'/c',c); return true; };
   UI.state=()=>S; UI.hist=()=>S.hist||[]; UI.lib=()=>S.lib||[]; UI.lists=()=>S.lists||[];
-  UI.act=c=>{ c.by=clean(nm.value); if(!pub(c)) return;
+  UI.act=c=>{ if(!myName()) return askName(true,()=>UI.act(c)); c.by=myName(); c.me=ME; if(!pub(c)) return;
     if(c.t==='add') toast(c.top?'已插播：'+c.s.title:'已點歌：'+c.s.title);
     else if(c.t==='plAdd') toast('已加入歌單：'+c.s.title);
     else if(c.t==='plNew') toast('新增了歌單「'+c.name+'」');
@@ -1074,7 +1164,7 @@ function startRemote(){
   $('#bPause').onclick=()=>pub({t:'pause'});
   $('#bReplay').onclick=()=>pub({t:'replay'});
   $('#bSkip').onclick=()=>pub({t:'skip'});
-  $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:clean(nm.value)})) fxFlash(b); };
+  $('#fxGrid').onclick=e=>{ const b=e.target.closest('button'); if(b&&pub({t:'fx',n:b.dataset.fx,by:myName()})) fxFlash(b); };
   // 手機上的畫面：靜音播跟電視同一支影片，照電視每幾秒送來的秒數對齊（聲音只從電視出來）
   let watch=load('ktv.watch',true),yp=null,yReady=false,T=null,tAt=0,seekAt=0,stuckAt=0,fixN=0,lead=0.5; // lead：跳過去後要緩衝，所以多跳幾秒；會照這支手機實際慢多少自己調
   // 手機擋住自動播放（iPhone 低耗電模式、省流量…）：3 秒還沒播起來，就讓使用者直接點影片本身，那一下才算數
@@ -1125,15 +1215,24 @@ function startRemote(){
   setInterval(syncVid,1000);
   function draw(){
     syncVid();
-    $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描主機上的 QR Code':S.now?S.now.title:(got?'目前沒有播放，點一首吧！':'連不到主機：請把主機的網頁重新整理一次，並確認房號正確');
+    if(S.now&&!moved){ $('#nowT').innerHTML='<span class="tt">'+esc(S.now.title)+'</span>'+byHTML(S.now); }
+    else $('#nowT').textContent=moved?'這個房號已經停用，請重新掃描主機上的 QR Code':(got?'目前沒有播放，點一首吧！':'連不到主機：請把主機的網頁重新整理一次，並確認房號正確');
     $('#bPause').textContent=S.paused?'▶ 繼續':'⏸ 暫停';
     renderList();
   }
   const mq=Mq(MQ_URL,()=>{ mq.sub(TOPIC+room+'/s'); mq.sub(TOPIC+room+'/t'); mq.pub(TOPIC+room+'/c',{t:'hi'}); setTimeout(()=>{ if(!got) draw(); },5000); },
     o=>{ if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); syncVid(); return; }
       if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('主機換了新的房號，請重新掃描 QR Code'); return; }
-      if(!o||!Array.isArray(o.q)) return; got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); },
+      if(!o||!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
+  // 輪到自己點的歌：提醒一下（手機會震動）；下一首是自己的也先說
+  let toldNow='',toldNext='';
+  function myTurn(){
+    if(isMine(S.now)&&S.now.k!==toldNow){ toldNow=S.now.k; toast('🎤 輪到你唱了：'+S.now.title,6000); if(navigator.vibrate) navigator.vibrate([200,100,200]); }
+    else if(isMine(S.q[0])&&S.q[0].k!==toldNext&&!isMine(S.now)){ toldNext=S.q[0].k; toast('⭐ 下一首就是你點的「'+S.q[0].title+'」，準備一下！',5000); }
+  }
+  save('ktv.role','remote');
+  setTimeout(offerInstall,20000);
   draw(); $('#nowT').textContent='連線中…';
   setInterval(()=>{ if(!got&&!moved&&mq.up) mq.pub(TOPIC+room+'/c',{t:'hi'}); },4000); // 主機晚打開或剛重新整理，也接得上
   window.__ktv={S:()=>S,mq};
