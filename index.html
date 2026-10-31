@@ -593,7 +593,7 @@ const PITCH_WORKLET=`class KtvPitch extends AudioWorkletProcessor{
 registerProcessor('ktv-pitch',KtvPitch);`;
 
 // ---------- 共用：搜尋與清單 ----------
-let results=null,hidden=0,maybeAt=-1,tab='search',searching=false;
+let results=null,hidden=0,maybeAt=-1,plainAt=-1,tab='search',searching=false;
 // 推薦＝好樂迪、錢櫃點播排行綜合（再用 KKBOX 熱門補到 100 首）；最新＝兩家新進歌曲＋KKBOX 新歌輪流排（Cloudflare 服務 /chart2 整理，快取 6 小時）
 const CHART_LANG=[['c','國語','tc'],['t','台語','tt'],['g','粵語','ct'],['w','英語','et'],['j','日語','jt'],['k','韓語','kt']];
 const CH={top:{lang:load('ktv.chartLang.top',load('ktv.chartLang','c')),list:null},new:{lang:load('ktv.chartLang.new',load('ktv.chartLang','c')),list:null}}; // 推薦、最新各自記語言和清單
@@ -641,7 +641,7 @@ async function findKaraoke(title,singer){
   const refS=secsOf(origs.filter(v=>secsOf(v)>60).sort((a,b)=>refRank(b)-refRank(a))[0]||{});
   const near=v=>{ const d=secsOf(v); return refS&&d?Math.abs(d-refS):999; };
   const kar=all.filter(v=>fine(v)&&(isKaraoke(v)||maybeKaraoke(v))&&bySinger(v)); // 歌手對不上的伴唱多半是翻唱版或同名的別首歌
-  const score=v=>(isKaraoke(v)?3:1)+(bySinger(v)?4:0)+(near(v)<=15?2:near(v)<=40||near(v)===999?0:-2)+kBonus(v);
+  const score=v=>(isKaraoke(v)?3:1)+(KTV_WORD.test(v.title)?2:0)-(INSTR.test(v.title)?3:0)+(bySinger(v)?4:0)+(near(v)<=15?2:near(v)<=40||near(v)===999?0:-2)+kBonus(v);
   const best=kar.sort((a,b)=>score(b)-score(a))[0];
   if(best&&score(best)>=4) return {sg:song(best),karaoke:true};
   // 沒有伴唱版：放原曲，歌詞版、MV 優先
@@ -656,6 +656,7 @@ const NOT_KARAOKE=/教學|教你唱|tutorial|reaction|cover|ai voice|翻唱|ktv\
 const isKaraoke=v=>KARAOKE.test(v.title)&&!NOT_KARAOKE.test(v.title)&&(!/導唱/.test(v.title)||/伴奏/.test(v.title));
 // 標題只寫 KTV 的：有些是伴唱、有些是有原唱的 KTV 影片，分不出來，放在下面另一區（使用者反映全部藏起來會找不到歌）
 const maybeKaraoke=v=>!isKaraoke(v)&&/ktv/i.test(v.title)&&!NOT_KARAOKE.test(v.title)&&!/導唱/.test(v.title);
+const KTV_WORD=/ktv|卡拉\s*ok|karaoke|伴唱/i,INSTR=/吉他|鋼琴|钢琴|piano|guitar|烏克麗麗|ukulele|無和音|無和聲|無和声/i; // 標題看得出是 KTV 版／樂器伴奏
 const UI={};   // 各模式提供 act(cmd)、state()
 
 function searchHTML(){
@@ -711,12 +712,12 @@ function bindSearch(){
 const cBusy=new Map(); // 推薦／最新每首歌的點歌狀態：busy 找伴唱中、done 已點
 const backBar=()=>'<div class="plTools"><button data-a="back">‹ 回到類別</button></div>';
 let backPushed=false;
-function searchHome(){ results=null; hidden=0; maybeAt=-1; searching=false; const q=$('#q'); if(q) q.value=''; tab='search'; renderList(); }
+function searchHome(){ results=null; hidden=0; maybeAt=plainAt=-1; searching=false; const q=$('#q'); if(q) q.value=''; tab='search'; renderList(); }
 function backToHome(){ if(backPushed){ history.back(); } else searchHome(); } // 有推過上一頁紀錄就用上一頁，讓瀏覽器紀錄保持乾淨
 addEventListener('popstate',()=>{ if(backPushed){ backPushed=false; searchHome(); } });
 async function doSearch(text,many){ // many：快捷鍵指定的好幾組搜尋字，結果交錯排
   text=String(text||'').trim(); if(!text) return;
-  tab='search';
+  tab='search'; maybeAt=plainAt=-1;
   if(!backPushed){ try{ history.pushState({ktvSearch:1},''); backPushed=true; }catch(e){} }
   const id=ytId(text);
   if(id){ // 貼上網址：直接查這支影片
@@ -728,7 +729,7 @@ async function doSearch(text,many){ // many：快捷鍵指定的好幾組搜尋�
   // 勾選伴唱版時同時找「歌名 伴奏」和「歌名 KTV 伴唱」，合併後只留標題看得出是伴唱的
   const kOnly=$('#kOnly').checked,has=/ktv|伴唱|伴奏|karaoke|卡拉/i.test(text);
   const qs=many||(kOnly&&!has?[text+' 伴奏',text+' KTV 伴唱',text+' KTV']:[text]);
-  searching=true; results=null; hidden=0; maybeAt=-1; renderList();
+  searching=true; results=null; hidden=0; renderList();
   const got=await Promise.all(qs.map(q=>fetch(API+'/search?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>null)));
   if(got.every(j=>!Array.isArray(j))) toast('搜尋失敗，請確認網路後再試一次');
   const seen=new Set(),all=[],lists=got.map(j=>Array.isArray(j)?j:[]),push=v=>{ if(v&&!seen.has(v.id)){ seen.add(v.id); all.push(v); } };
@@ -737,7 +738,11 @@ async function doSearch(text,many){ // many：快捷鍵指定的好幾組搜尋�
   const total=all.length;
   if(kOnly){
     const ok=all.filter(v=>mins(v.len)<10); // 10 分鐘以上的串燒、合輯唱不了，算進隱藏
-    const sure=ok.filter(isKaraoke),maybe=ok.filter(maybeKaraoke); results=sure.concat(maybe); maybeAt=maybe.length?sure.length:-1;
+    // KTV 版排最前面，再來是只寫 KTV 的，然後才是單純伴奏（有歌詞的優先），吉他、鋼琴伴奏最後；同一類照搜尋的相關度
+    const sure=ok.filter(isKaraoke),ktv=sure.filter(v=>KTV_WORD.test(v.title)&&!INSTR.test(v.title)),maybe=ok.filter(maybeKaraoke);
+    const plain=sure.filter(v=>!ktv.includes(v)&&!INSTR.test(v.title)),hasLyr=v=>/歌詞|歌词|字幕|lyrics?/i.test(v.title);
+    const rest=plain.filter(hasLyr).concat(plain.filter(v=>!hasLyr(v)),sure.filter(v=>!ktv.includes(v)&&INSTR.test(v.title)));
+    results=ktv.filter(v=>kBonus(v)>=0).concat(ktv.filter(v=>kBonus(v)<0),maybe,rest); maybeAt=maybe.length?ktv.length:-1; // MIDI、導唱、左伴右唱排在 KTV 版的後段 plainAt=rest.length?ktv.length+maybe.length:-1;
   } else results=all;
   hidden=total-results.length;
   searching=false; renderList();
@@ -803,7 +808,7 @@ function renderList(){
     if(searching) h='<div class="empty">搜尋中…</div>';
     else if(!results) h='<div class="empty">輸入想唱的歌，或點一個馬上找：<div class="chips">'+HOT.map(([t])=>'<button data-hot="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>';
     else if(!results.length) h=backBar()+'<div class="empty">找不到'+(hidden?'伴唱版':'')+'，換個關鍵字試試看<br><span class="small">（也可以取消「只找 KTV 伴唱版」）</span></div>';
-    else h=backBar()+results.map((s,i)=>(i===maybeAt?'<div class="maybeHd">以下標題只寫「KTV」，可能有原唱（可以按 🎤 去人聲）</div>':'')+rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('')+
+    else h=backBar()+results.map((s,i)=>(i===maybeAt?'<div class="maybeHd">以下標題只寫「KTV」，可能有原唱（可以按 🎤 去人聲）</div>':'')+(i===plainAt?'<div class="maybeHd">以下是單純伴奏，可能沒有歌詞字幕</div>':'')+rowHTML(s,i,'<button class="main" data-a="add" data-i="'+i+'">點歌</button><button data-a="ins" data-i="'+i+'">插播</button>')).join('')+
       (hidden?'<div class="empty small">已隱藏 '+hidden+' 首 MV、歌詞版、串燒、翻唱或自己唱的錄影，取消勾選「只找 KTV 伴唱版」可以看全部</div>':'');
   } else if(tab==='queue'){
     h=(IS_REMOTE?mineSum(st):'')+(st.now?rowHTML(st.now,-1,'<span class="small">▶ 播放中</span>'):'')+
