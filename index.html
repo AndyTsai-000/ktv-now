@@ -317,6 +317,40 @@ header{background:rgba(12,7,32,.55);backdrop-filter:var(--glass);-webkit-backdro
   #remote .tabs{margin:2px 12px 0} #remote .list{margin:8px 12px 12px} #remote .now{margin:10px 12px 0}
   #bar{padding:8px 10px}
 }
+
+/* ===== 彈幕 ===== */
+.dmLayer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
+.dm{position:absolute;left:0;top:0;white-space:nowrap;font-weight:800;font-size:clamp(15px,1.9vw,32px);line-height:1.25;color:#fff;padding:1px 12px;border-radius:999px;
+  background:rgba(12,7,32,.28);opacity:.92;text-shadow:0 2px 6px rgba(0,0,0,.85),0 0 2px #000;will-change:transform}
+.dm b{color:#ffd166;font-weight:800}
+.dm.me{box-shadow:0 0 0 2px rgba(255,122,192,.85)}
+#stage:fullscreen .dm,body.big .dm{font-size:clamp(18px,2.2vw,40px)}
+#nextUp,#roomTag,#stage #toast,#exitFs{z-index:5} /* 下一首、房號、提示在彈幕上面 */
+#rStage .dm{font-size:14px;padding:1px 9px}
+#fxRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#fxRow #fxBar{flex:none}
+.dmSend{display:flex;gap:6px;flex:1;min-width:220px}
+.dmSend input{flex:1;min-width:0;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:999px;padding:8px 14px;outline:none;transition:border-color .2s,box-shadow .2s}
+.dmSend input:focus{border-color:#ff7ac0;box-shadow:0 0 0 3px rgba(255,79,163,.22)}
+.dmSend button{border-radius:999px;white-space:nowrap}
+#dmTog.off{opacity:.65}
+#dmBox{margin-top:10px}
+#dmBox .dmSend input{font-size:16px} /* iPhone 輸入框小於 16px 一點下去整頁會放大 */
+.dmQuick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.dmQuick button{border-radius:999px;padding:7px 12px;font-size:14px;min-height:36px}
+.dmQuick button.hit{background:var(--grad);border-color:transparent}
+/* ===== 大畫面（歌詞大字模式） ===== */
+#roomTag{position:absolute;left:12px;bottom:12px;z-index:4;display:none;padding:6px 12px;border-radius:999px;font-size:14px;background:rgba(12,7,32,.72);border:1px solid var(--line);backdrop-filter:blur(8px);opacity:.85}
+#roomTag b{color:#ffd166;letter-spacing:2px}
+body.big header,body.big #side,body.big .tipBar{display:none}
+body.big #app{height:100%;min-height:0}
+body.big #tv{display:grid!important;grid-template-columns:1fr!important;height:auto}
+body.big #left{padding:10px;gap:8px;height:100%}
+body.big #stage{flex:1;aspect-ratio:auto;min-height:0;border-radius:16px}
+body.big #nextUp.has,body.big #roomTag{display:block}
+body.big .dmSend{display:none}
+#stage:fullscreen #roomTag{display:block}
+@media (max-width:520px){ .dmSend{min-width:0;flex-basis:100%} #fxRow{gap:6px} body.big #fxRow{display:none} }
 </style>
 </head>
 <body>
@@ -640,6 +674,26 @@ function FxScene(layer){
 }
 
 const fxButtons=cls=>FX.map(([k,e,t],i)=>'<button data-fx="'+k+'" title="快捷鍵 '+(i+1)+'">'+e+' '+t+'</button>').join('');
+// 彈幕：從右往左飄過，只用畫面最上面三成（伴唱歌詞多半在中間到下面），分好幾行，同一行前一則完全進場才放下一則
+function Danmu(layer){
+  const free=[]; let wait=0; // 每一行什麼時候空出來；wait＝排隊中的則數（最多 30）
+  return { add(text,by,mine){
+    const W=layer.clientWidth,H=layer.clientHeight; if(!W||!H) return;
+    const el=document.createElement('div'); el.className='dm'+(mine?' me':'');
+    if(by){ const b=document.createElement('b'); b.textContent=by+'：'; el.appendChild(b); }
+    el.appendChild(document.createTextNode(text)); layer.appendChild(el);
+    const w=el.offsetWidth,lh=el.offsetHeight*1.22,rows=Math.max(1,Math.floor(H*0.30/lh)),speed=Math.max(120,W/7),now=performance.now();
+    let r=0; for(let i=0;i<rows;i++){ if(!(free[i]>now)){ r=i; break; } if(free[i]<free[r]) r=i; }
+    if(free[r]>now){ el.remove(); if(wait<30){ wait++; setTimeout(()=>{ wait--; this.add(text,by,mine); },free[r]-now+30); } return; } // 每一行都滿了：先排隊，等有一行空出來再飄（不疊字）
+    free[r]=now+(w+48)/speed*1000;
+    el.style.top=Math.round(H*0.03+r*lh)+'px';
+    const a=el.animate([{transform:'translateX('+W+'px)'},{transform:'translateX('+(-w-20)+'px)'}],{duration:(W+w+20)/speed*1000,easing:'linear'});
+    a.onfinish=()=>el.remove();
+    while(layer.children.length>40) layer.firstChild.remove();
+  } };
+}
+const DM_QUICK=['好聽！','安可！','太強了','再來一首','❤️❤️❤️','👏👏👏'];
+const dmClean=t=>String(t==null?'':t).replace(/[\u0000-\u001f\u200b-\u200f\u2028-\u202e]/g,'').replace(/\s+/g,' ').trim().slice(0,30); // 留言：拿掉控制字元和隱形字，最多 30 字
 function fxFlash(b){ b.classList.add('hit'); setTimeout(()=>b.classList.remove('hit'),300); }
 
 // ---------- 電腦裡的歌：檔案存在這台電腦的瀏覽器（IndexedDB），重新整理也還在 ----------
@@ -1030,9 +1084,9 @@ function startTV(){
     '<div id="tv"><div id="left"><div id="stage"><div id="player"></div><video id="localV" playsinline></video>'+
       '<div id="localA"><div class="eq">'+'<i></i>'.repeat(14)+'</div><div id="localT"></div><div class="small">🎵 '+DEV+'裡的歌</div></div>'+
       '<div id="idle"><h2>點一首歌，馬上開唱！</h2><div class="small">搜尋歌名或歌手，或用手機掃描下面的 QR Code 點歌</div><div id="idleQr"></div><div class="code">'+room+'</div></div>'+
-      '<div id="fxLayer"></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><div id="toast"></div></div>'+
-      '<div id="fxBar">'+fxButtons()+'</div>'+
-      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
+      '<div id="fxLayer"></div><div class="dmLayer" id="dmLayer"></div><button id="exitFs">✕ 離開全螢幕</button><div id="nextUp"></div><button id="roomTag" title="顯示 QR Code">📱 點歌房號 <b>'+room+'</b></button><div id="toast"></div></div>'+
+      '<div id="fxRow"><div id="fxBar">'+fxButtons()+'</div><div class="dmSend"><input id="dmIn" maxlength="30" placeholder="💬 打一句話飄過畫面…" enterkeyhint="send" autocomplete="off"><button id="dmGo">送出</button><button id="dmTog" title="關掉後，大家傳的留言不會出現在畫面上"></button></div></div>'+
+      '<div id="bar"><div id="nowT"></div><div class="ctl"><button id="bPause">⏸ 暫停</button> <button id="bReplay">↺ 重唱</button> <button class="main" id="bSkip">⏭ 切歌</button> <button id="bBig" title="收起點歌欄，影片放到最大，坐遠也看得清楚歌詞"></button> <button id="bFull">⛶ 全螢幕</button> <span id="keyBox"><button id="kDn" title="降一個半音">Key −</button><span id="kVal">原調</span><button id="kUp" title="升一個半音（YouTube 的歌第一次要分享這個分頁）">Key +</button></span> <button id="bVr"'+(CAN_VR?'':' style="display:none"')+' title="把歌手的聲音變小（YouTube 的歌要電腦版 Chrome／Edge）">🎤 去人聲</button></div></div></div>'+
     '<div id="side">'+searchHTML()+'<input type="file" id="fileIn" multiple accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.m4v,.webm,.mov" hidden></div></div>';
   // QR Code 的程式只有主機要用，晚一點才載，點歌的手機開得比較快
   const drawQR=()=>{ for(const el of [$('#qr'),$('#idleQr')]) new QRCode(el,{text:link,width:256,height:256,correctLevel:QRCode.CorrectLevel.M}); };
@@ -1226,11 +1280,12 @@ function startTV(){
     else if(c.t==='ldel'){ LIB=LIB.filter(x=>x.id!==c.id); saveLib(); LocalLib.del(c.id).catch(()=>{}); }
     else if(c.t==='hi') return send();
     else if(c.t==='fx') return fx(c.n,clean(c.by)||'有人',meOf(c).me);
+    else if(c.t==='dm') return danmu(c.text,clean(c.by)||'有人',meOf(c).me);
     else if(c.t==='hdel') save('ktv.hist',hist().filter(h=>h.id!==c.id));
     changed();
   }
   let mq=null;
-  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300),lists:PL.map(p=>({id:p.id,name:p.name,songs:p.songs.slice(0,200)}))}); sendT(); }
+  function send(){ if(mq) mq.pub(TOPIC+room+'/s',{now:S.now,q:S.q,paused:S.paused,dm:load('ktv.danmu',true),hist:hist().slice(0,30),vr:[...VR_IDS].slice(-300),lib:LIB.slice(0,300),lists:PL.map(p=>({id:p.id,name:p.name,songs:p.songs.slice(0,200)}))}); sendT(); }
   // 點歌的手機也看得到畫面：每幾秒告訴手機播到第幾秒，手機自己靜音播同一支影片跟著走
   function sendT(){
     if(!mq||!S.now) return;
@@ -1283,6 +1338,25 @@ function startTV(){
     try{ if(!fxCtx) fxCtx=new AudioContext(); if(fxCtx.state==='suspended') fxCtx.resume(); fxPlay(fxCtx,name); }catch(e){}
   }
   fxWarm();
+  // 彈幕：主機自己打字、點歌的手機傳來的都在這裡放；也轉給每支點歌的手機
+  const dm=Danmu($('#dmLayer')),dmLast=new Map(); let dmOn=load('ktv.danmu',true);
+  function danmu(text,by,me){
+    text=dmClean(text); if(!text||!dmOn) return false;
+    const key=me||by||'主機',now=Date.now(); if(now-(dmLast.get(key)||0)<1200) return false; dmLast.set(key,now); // 同一人 1.2 秒內只算一則，免得洗版
+    dm.add(text,by,false);
+    if(mq) mq.pub(TOPIC+room+'/t',{dm:text,by:by||'',...(me?{me}:{})});
+    return true;
+  }
+  const dmShow=()=>{ $('#dmTog').textContent=dmOn?'💬 彈幕：開':'💬 彈幕：關'; $('#dmTog').classList.toggle('off',!dmOn); $('#dmIn').disabled=$('#dmGo').disabled=!dmOn; };
+  $('#dmTog').onclick=()=>{ dmOn=!dmOn; save('ktv.danmu',dmOn); dmShow(); send(); toast(dmOn?'彈幕打開了：手機傳的話會飄過畫面':'彈幕關掉了'); };
+  const dmSend=()=>{ const t=$('#dmIn').value; if(!dmClean(t)) return; if(danmu(t,myName())) $('#dmIn').value=''; };
+  $('#dmGo').onclick=dmSend; $('#dmIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); dmSend(); } };
+  dmShow();
+  // 大畫面（歌詞大字模式）：收起標題列和點歌欄，影片放到最大；角落留房號給大家掃
+  const bigShow=on=>{ document.body.classList.toggle('big',on); $('#bBig').textContent=on?'↩ 一般畫面':'🖥 大畫面'; };
+  $('#bBig').onclick=()=>{ const on=!document.body.classList.contains('big'); save('ktv.big',on); bigShow(on); };
+  $('#roomTag').onclick=()=>qrShow(true);
+  bigShow(!!load('ktv.big',false));
   $('#fxBar').onclick=e=>{ const b=e.target.closest('button'); if(b){ fxFlash(b); fx(b.dataset.fx); } };
   document.addEventListener('keydown',e=>{ if((e.target.matches&&e.target.matches('input,textarea'))||e.ctrlKey||e.altKey||e.metaKey) return; const i=+e.key-1; if(FX[i]){ fx(FX[i][0]); const b=$('#fxBar [data-fx='+FX[i][0]+']'); if(b) fxFlash(b); } });
   // 去人聲在另一個小視窗處理（分享分頁聲音時，被分享的分頁會被靜音，所以不能在這頁自己放）
@@ -1357,10 +1431,12 @@ function startRemote(){
   const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
     '<button id="nmBtn" class="nameBtn" title="改你的名字"></button></header>'+
-    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div><div id="fxLayer"></div></div>'+
+    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div><div id="fxLayer"></div><div class="dmLayer" id="dmLayer"></div></div>'+
       '<div class="small">正在唱<button class="link" id="bWatch"></button></div><div class="t" id="nowT">連線中…</div>'+
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
-      '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div></div>'+
+      '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div>'+
+      '<div id="dmBox"><div class="dmSend"><input id="dmIn" maxlength="30" placeholder="💬 打一句話，飄過主機畫面" enterkeyhint="send" autocomplete="off"><button class="main" id="dmGo">送出</button></div>'+
+        '<div class="dmQuick">'+DM_QUICK.map(t=>'<button data-t="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div></div>'+
       searchHTML()+'</div><div id="toast" style="position:fixed"></div>';
   // 這台已經有名字（打開網頁時輸入過）就直接用，沒有才問；有名字才能點歌
   nameShow(); $('#nmBtn').onclick=()=>askName(false);
@@ -1441,7 +1517,15 @@ function startRemote(){
   $('#rShield').onclick=()=>{ if(yReady&&!vidMsg()&&T&&!T.p) yp.playVideo(); }; // 擋住影片本身的點擊，不讓手機自己暫停
   setInterval(syncVid,1000);
   // 有人按特效：手機畫面上也放（看得到畫面時），別人按的再跳一行字
-  const rFx=FxScene($('#fxLayer'));
+  const rFx=FxScene($('#fxLayer')),rDm=Danmu($('#dmLayer'));
+  // 彈幕：傳一句話到主機畫面（主機關掉彈幕時收起來）；1.5 秒內只能傳一則
+  let dmAt=0;
+  const dmPub=t=>{ t=dmClean(t); if(!t) return false; if(!myName()){ askName(true); return false; }
+    if(Date.now()-dmAt<1500){ toast('慢一點，等一下再傳'); return false; }
+    if(!pub({t:'dm',text:t,by:myName(),me:ME})) return false; dmAt=Date.now(); return true; };
+  const dmGo=()=>{ if(dmPub($('#dmIn').value)){ $('#dmIn').value=''; $('#dmIn').blur(); } };
+  $('#dmGo').onclick=dmGo; $('#dmIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); dmGo(); } };
+  $('#dmBox .dmQuick').onclick=e=>{ const b=e.target.closest('button'); if(b&&dmPub(b.dataset.t)) fxFlash(b); };
   function fxSeen(o){
     const f=FX.find(x=>x[0]===o.fx); if(!f) return;
     if(watch) rFx.play(o.fx);
@@ -1461,9 +1545,10 @@ function startRemote(){
       lastSeen=Date.now();
       if(o.hb){ hbSeen=true; if(gone) mq.pub(TOPIC+room+'/c',{t:'hi'}); return; } // 主機又出現了：要一份最新狀態
       if(o.fx){ fxSeen(o); return; }
+      if(o.dm!==undefined&&!o.q){ if(watch) rDm.add(dmClean(o.dm),clean(o.by),o.me===ME); return; } // 有人傳彈幕：手機畫面上也飄過
       if(o&&o.k&&!o.q){ T=o; tAt=Date.now(); if(window.__syncLog) window.__syncLog.push((Date.now()%100000)+' 收到 '+o.t); syncVid(); return; }
       if(o&&o.moved){ moved=true; mq.close(); S={now:null,q:[],paused:false}; draw(); toast('主機換了新的房號，請重新掃描 QR Code'); return; }
-      if(!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; hostBack(); S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
+      if(!Array.isArray(o.q)) return; if(!got) save('ktv.lastRoom',{r:room,at:Date.now()}); got=true; hostBack(); $('#dmBox').hidden=o.dm===false; S={now:o.now||null,q:o.q,paused:!!o.paused,hist:Array.isArray(o.hist)?o.hist:[],lib:Array.isArray(o.lib)?o.lib:[],lists:Array.isArray(o.lists)?o.lists:[]}; VR_IDS=new Set(Array.isArray(o.vr)?o.vr:[]); draw(); myTurn(); },
     up=>{ const d=$('#net'); if(d) d.classList.toggle('on',up); });
   // 輪到自己點的歌：提醒一下（手機會震動）；下一首是自己的也先說
   let toldNow='',toldNext='';
