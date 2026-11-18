@@ -351,6 +351,17 @@ body.big #nextUp.has,body.big #roomTag{display:block}
 body.big .dmSend{display:none}
 #stage:fullscreen #roomTag{display:block}
 @media (max-width:520px){ .dmSend{min-width:0;flex-basis:100%} #fxRow{gap:6px} body.big #fxRow{display:none} }
+
+/* ===== 點歌手機的放大影片 ===== */
+#rBigX{display:none;position:absolute;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:6;padding:8px 14px;border-radius:999px;font-size:14px;background:rgba(12,7,32,.75);border:1px solid rgba(255,255,255,.25);backdrop-filter:blur(8px)}
+body.rbig{overflow:hidden}
+body.rbig #rStage{position:fixed;inset:0;z-index:80;margin:0;border-radius:0;aspect-ratio:auto;width:100vw;height:100vh;height:100dvh;background:#000;box-shadow:none}
+body.rbig #rBigX{display:block}
+#rRot{display:none;position:absolute;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;padding:8px 16px;border-radius:999px;font-size:14px;white-space:nowrap;color:#fff;background:rgba(12,7,32,.75);border:1px solid rgba(255,255,255,.2);pointer-events:none}
+@media (orientation:portrait){ body.rbig #rRot{display:block} }
+body.rbig #toast{z-index:90}
+body.rbig #rStage .dm{font-size:clamp(16px,3.4vw,30px);padding:1px 11px}
+#rStage:fullscreen{border-radius:0}
 </style>
 </head>
 <body>
@@ -1431,8 +1442,8 @@ function startRemote(){
   const room=JOIN; let S={now:null,q:[],paused:false},got=false,moved=false;
   $('#app').innerHTML='<header><span class="logo">🎤 點歌</span><span class="small"><span class="dot" id="net"></span>房號 '+room+'</span><span class="sp"></span>'+
     '<button id="nmBtn" class="nameBtn" title="改你的名字"></button></header>'+
-    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div><div id="fxLayer"></div><div class="dmLayer" id="dmLayer"></div></div>'+
-      '<div class="small">正在唱<button class="link" id="bWatch"></button></div><div class="t" id="nowT">連線中…</div>'+
+    '<div id="remote"><div class="now"><div id="rStage"><div id="rPlayer"></div><div id="rShield"></div><div id="rTap">👆 手機擋住自動播放，點一下影片就會跟著主機播</div><div id="rMsg"></div><div id="fxLayer"></div><div class="dmLayer" id="dmLayer"></div><button id="rBigX">✕ 回到點歌</button><div id="rRot">📱 把手機轉橫，影片會更大</div></div>'+
+      '<div class="small">正在唱<button class="link" id="bWatch"></button><button class="link" id="bRBig">⛶ 放大影片</button></div><div class="t" id="nowT">連線中…</div>'+
       '<div class="ctl"><button id="bPause">⏸ 暫停</button><button id="bReplay">↺ 重唱</button><button class="main" id="bSkip">⏭ 切歌</button></div>'+
       '<div class="fxGrid" id="fxGrid">'+fxButtons()+'</div>'+
       '<div id="dmBox"><div class="dmSend"><input id="dmIn" maxlength="30" placeholder="💬 打一句話，飄過主機畫面" enterkeyhint="send" autocomplete="off"><button class="main" id="dmGo">送出</button></div>'+
@@ -1487,7 +1498,8 @@ function startRemote(){
     if(!yp.isMuted()) yp.mute(); // 聲音和音量只歸電視那台管
     if(m){ stuckAt=0; tapMode(false); if(yp.getPlayerState()===1) yp.pauseVideo(); return; }
     const target=T.t+(T.p?0:(Date.now()-tAt)/1000),st=yp.getPlayerState();
-    if((yp.getVideoData()||{}).video_id!==T.id){ slog('換影片',target,(yp.getVideoData()||{}).video_id); yp.loadVideoById({videoId:T.id,startSeconds:target+1}); seekAt=stuckAt=Date.now(); return; } // 多 1 秒給它載入
+    const vid=(yp.getVideoData()||{}).video_id;
+    if(vid!==T.id&&!(st===1&&!vid)){ slog('換影片',target,vid); yp.loadVideoById({videoId:T.id,startSeconds:target+1}); seekAt=stuckAt=Date.now(); return; } // 多 1 秒給它載入 // 正在播時偶爾回報空白（例如影片剛放大），不算換歌
     if(T.p){ stuckAt=0; tapMode(false); if(st===1||st===3) yp.pauseVideo(); if(Math.abs(yp.getCurrentTime()-target)>1) yp.seekTo(target,true); return; }
     // 換歌時重新載入、直接從主機的秒數開始最準；剛點影片播起來的第一首也用這個方法對齊
     const reload=()=>{ slog('重新載入',target,lead); yp.loadVideoById({videoId:T.id,startSeconds:target+lead+0.5}); seekAt=Date.now(); fixN=0; };
@@ -1514,6 +1526,14 @@ function startRemote(){
     const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s);
   }
   $('#bWatch').onclick=()=>{ watch=!watch; save('ktv.watch',watch); syncVid(); };
+  // 放大影片（只影響這支手機）：Android 用真的全螢幕再轉橫向；iPhone 的瀏覽器不能讓網頁全螢幕，就讓影片蓋滿整個畫面
+  const rBig=on=>{ document.body.classList.toggle('rbig',on); const st=$('#rStage');
+    if(on){ if(st.requestFullscreen) st.requestFullscreen({navigationUI:'hide'}).then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} }).catch(()=>{}); }
+    else { if(document.fullscreenElement) document.exitFullscreen().catch(()=>{}); try{ screen.orientation.unlock(); }catch(e){} }
+    setTimeout(syncVid,300); };
+  $('#bRBig').onclick=()=>{ if(!watch){ watch=true; save('ktv.watch',true); syncVid(); } rBig(true); };
+  $('#rBigX').onclick=()=>rBig(false);
+  document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement&&document.body.classList.contains('rbig')) rBig(false); }); // 用返回鍵離開全螢幕
   $('#rShield').onclick=()=>{ if(yReady&&!vidMsg()&&T&&!T.p) yp.playVideo(); }; // 擋住影片本身的點擊，不讓手機自己暫停
   setInterval(syncVid,1000);
   // 有人按特效：手機畫面上也放（看得到畫面時），別人按的再跳一行字
