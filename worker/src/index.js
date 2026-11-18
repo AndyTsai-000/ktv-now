@@ -45,6 +45,13 @@ export default {
     const h = cors(env, req);
     if (req.method === 'OPTIONS') return new Response(null, { headers: { ...h, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
     const u = new URL(req.url);
+    // 點歌連線：每個房號一個房間，主機和手機都連進來，訊息轉給同房間的其他人（免費的公用 MQTT 伺服器很不穩，這條是主要的路）
+    const rm = u.pathname.match(/^\/room\/(\d{6})$/);
+    if (rm) {
+      if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
+      if (!ok(env, req.headers.get('Origin') || '')) return new Response('forbidden', { status: 403 });
+      return env.ROOMS.get(env.ROOMS.idFromName(rm[1])).fetch(req);
+    }
     // 綜合排行：好樂迪＋錢櫃＋KKBOX，m=top 推薦、m=new 最新，lang=c/t/g/w/j/k，快取 6 小時
     if (u.pathname === '/chart2' && h['Access-Control-Allow-Origin']) {
       const m = u.searchParams.get('m') === 'new' ? 'new' : 'top';
@@ -108,3 +115,19 @@ export default {
     }
   },
 };
+
+// 一個房號一個房間：用休眠 WebSocket（沒人講話時不算時間），收到什麼就轉給房間裡的其他人
+export class KtvRoom {
+  constructor(state) { this.state = state; }
+  async fetch(req) {
+    const pair = new WebSocketPair();
+    this.state.acceptWebSocket(pair[1]);
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+  webSocketMessage(ws, msg) {
+    if (typeof msg !== 'string' || msg.length > 200000) return;
+    for (const o of this.state.getWebSockets()) if (o !== ws) { try { o.send(msg); } catch (e) {} }
+  }
+  webSocketClose(ws) { try { ws.close(); } catch (e) {} }
+  webSocketError(ws) { try { ws.close(); } catch (e) {} }
+}

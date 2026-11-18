@@ -4,3 +4,12 @@ compatibility_date = "2026-09-01"
 
 [vars]
 APP_ORIGINS = "https://andytsai-000.github.io,http://localhost:8795"
+
+# 點歌連線的房間（Durable Object，免費方案要用 SQLite 版）
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "KtvRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["KtvRoom"]
